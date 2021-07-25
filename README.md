@@ -2,7 +2,7 @@
 An example bare bones OS template for RISC V.
 
 ## Build instructions
-Install [the Newlib GNU RISC V toolchain](https://github.com/riscv/riscv-gnu-toolchain) and do `make` to build. Do `make run` to run. It should print out a bunch of debug information related to OpenSBI and then a single `a`.
+Install [the Newlib GNU RISC V toolchain](https://github.com/riscv/riscv-gnu-toolchain#installation-newlib) and do `make` to build. Do `make run` to run. It should print out a bunch of debug information related to OpenSBI and then a single `a`.
 
 ## Exiting QEMU
 This is the new "how to exit Vi" I guess. To exit, press control+x, unpress those keys, and then press a.

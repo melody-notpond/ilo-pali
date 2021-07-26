@@ -7,7 +7,7 @@ Install [the Newlib GNU RISC-V toolchain](https://github.com/riscv/riscv-gnu-too
 Alternatively, you can install Clang and use `make CC=clang`.
 
 ## Exiting QEMU
-This is the new "how to exit Vi" I guess. To exit, press control+a, unpress those keys, and then press x.
+This is the new "how to exit Vi" I guess. To exit, press <kbd>Ctrl</kbd>+<kbd>a</kbd>, unpress those keys, and then press <kbd>x</kbd>.
 
 ## Debugging
 Execute `make gdb` and then `make run`.
@@ -16,5 +16,5 @@ If you'd like to trace the execution since the beginning, use `make run WAIT_GDB
 
 ## Resources
  - [OpenSBI docs](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc)
- - [RISC V specs](https://riscv.org/technical/specifications/)
- - [RISC V Assembly Tutorial](https://riscv-programming.org/book/riscv-book.html)
+ - [RISC-V specs](https://riscv.org/technical/specifications/)
+ - [RISC-V assembly tutorial](https://riscv-programming.org/book/riscv-book.html)

@@ -8,7 +8,6 @@
 
 # sbi_console_putchar(char) -> void
 # Puts a character onto the UART port.
-
 sbi_console_putchar:
 	li a6, 0
 	li a7, 1
@@ -17,7 +16,6 @@ sbi_console_putchar:
 
 # sbi_console_getchar() -> int
 # Gets a character from the UART port.
-
 sbi_console_getchar:
 	li a6, 0
 	li a7, 2

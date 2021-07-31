@@ -21,7 +21,7 @@ struct sbiret {
 void sbi_console_putchar(char);
 
 // sbi_console_getchar() -> int
-// Puts a character onto the UART port.
+// Gets a character from the UART port.
 int sbi_console_getchar();
 
 #endif /* OPENSBI_H */

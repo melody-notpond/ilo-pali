@@ -27,4 +27,4 @@ run:
 	$(EMU) $(EFLAGS) -kernel kernel
 
 gdb:
-	$(GDB) -x kernel.gdb
+	$(GDB) -q -x kernel.gdb

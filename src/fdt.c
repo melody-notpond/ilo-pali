@@ -1,3 +1,5 @@
+#include <stddef.h>
+
 #include "fdt.h"
 #include "console.h"
 #include "string.h"
@@ -20,7 +22,7 @@ unsigned long long be_to_le(unsigned long long size, void* be) {
 // Verifies a fdt by checking its magic number.
 fdt_t verify_fdt(void* fdt) {
     fdt_header_t* header = fdt;
-    if (be_to_le(32, header->magic) == 0xd00dfeed && be_to_le(32, header->version) == 17)
+    if (header != NULL && be_to_le(32, header->magic) == 0xd00dfeed && be_to_le(32, header->version) == 17)
         return (fdt_t) {
             .header = header,
             .memory_reservation_block = fdt + be_to_le(32, header->off_mem_rsvmap),

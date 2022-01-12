@@ -25,8 +25,8 @@ ilo pali microkernel features:
     - `alloc_page(void* addr, size_t count, int permissions) -> void* addr`
         Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
 
-    - `dealloc_page(void* addr) -> int status`
-        Deallocates the page(s) containing the given address. Returns 0 on success and 1 if the page was never allocated.
+    - `dealloc_page(void* addr, size_t count) -> int status`
+        Deallocates the page(s) containing the given address. Returns 0 on success and 1 if a page was never allocated by this process.
 
     - `page_permissions(void* addr, int permissions) -> int status`
         Modifies the permissions of the given page. Returns 0 on success, 1 if the page was never allocated, and 2 if both write and execute were attempted to be set.

@@ -29,11 +29,6 @@ SECTIONS
     . += 0x4000;
     PROVIDE(stack_top = .);
 
-    /* Heap */
-    . = ALIGN(4096);
-    PROVIDE(heap_bottom = .);
-    . += 0x80000;
-
     /* Pages */
     . = ALIGN(4096);
     PROVIDE(pages_bottom = .);

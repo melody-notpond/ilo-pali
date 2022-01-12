@@ -18,13 +18,24 @@ endif
 .PHONY: all clean run gdb
 
 all: $(CODE)*.s $(CODE)*.c
-	$(CC) $(CFLAGS) $? -o kernel
+	mkdir -p build
+	$(CC) $(CFLAGS) $? -o build/kernel
 
 clean:
-	-rm kernel
+	-rm -r build/
 
 run:
-	$(EMU) $(EFLAGS) -kernel kernel
+	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
+
+disc:
+	mkdir -p build
+	dd if=/dev/zero of=build/initrd bs=4M count=3
+	mkfs.fat -F 16 -n INITRD build/initrd
+	mkdir -p mnt
+	sudo mount build/initrd mnt/
+	echo 'echo "uwu" > mnt/uwu.txt' | sudo su
+	echo 'echo "initd" > mnt/initd' | sudo su
+	sudo umount mnt
 
 gdb:
 	$(GDB) -q -x kernel.gdb

@@ -14,10 +14,6 @@ typedef uint8_t page_t[PAGE_SIZE];
 // Initialises the pages to be ready for page allocation.
 void init_pages(fdt_t* tree);
 
-// page_ref_count(page_t*) -> uint16_t*
-// Returns the reference count for the page.
-uint16_t* page_ref_count(page_t* page);
-
 // alloc_pages(size_t) -> void*
 // Allocates a number of pages.
 void* alloc_pages(size_t count);

@@ -107,6 +107,14 @@ ilo pali microkernel features:
 
         Gets the pid of the parent process of the current process. Returns -1 if the parent process does not exist or died.
 
+    - `getuid(pid_t pid) -> uid_t`
+
+        Gets the uid of the given process.
+
+    - `setuid(pid_t pid, uid_t uid) -> int status`
+
+        Sets the uid of the given process (can only be done by processes with uid = 0). Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
+
     - `sleep(size_t seconds, size_t nanos) -> int status`
 
         Sleeps for the given amount of time. Returns 0 on success and 1 on failure. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.

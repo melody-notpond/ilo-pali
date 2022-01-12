@@ -23,6 +23,7 @@ ilo pali microkernel features:
  - process management
  - syscalls:
     - `alloc_page(void* addr, size_t count, int permissions) -> void* addr`
+
         Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
 
     - `dealloc_page(void* addr, size_t count) -> int status`

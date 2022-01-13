@@ -4,10 +4,17 @@
 #include "console.h"
 #include "fdt.h"
 #include "fat16.h"
+#include "interrupt.h"
 #include "memory.h"
 #include "mmu.h"
 
+trap_t trap = { 0 };
+extern int stack_start;
+
 void kinit(uint64_t hartid, void* fdt) {
+    trap.xs[REGISTER_SP] = (uint64_t) &stack_start;
+    trap.xs[REGISTER_FP] = trap.xs[REGISTER_SP];
+
     console_printf("toki, ale o!\nhartid: %lx\nfdt pointer: %p\n", hartid, fdt);
 
     fdt_t devicetree = verify_fdt(fdt);

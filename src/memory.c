@@ -95,7 +95,7 @@ void* alloc_pages(size_t count) {
 void incr_page_ref_count(void* page, size_t count) {
     uint16_t* rc = page_ref_count(page);
     for (size_t i = 0; i < count; i++) {
-        if (*rc != UINT16_MAX) {
+        if (*rc != UINT16_MAX && *rc != 0) {
             *rc += 1;
         }
         rc++;

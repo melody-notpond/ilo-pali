@@ -1,0 +1,41 @@
+#include "console.h"
+#include "elf.h"
+
+// verify_elf(void* data, size_t size) -> elf_t
+// Verifies an elf file.
+elf_t verify_elf(void* data, size_t size) {
+    elf_header_t* header = data;
+
+    if (header->ident[0] != 0x7f || header->ident[1] != 'E' || header->ident[2] != 'L' || header->ident[3] != 'F') {
+        console_printf("data located at %p is not an elf file\n", data);
+        return (elf_t) { 0 };
+    }
+
+    if (header->ident[5] != 1) {
+        console_printf("unknown data encoding 0x%x\n", header->ident[5]);
+        return (elf_t) { 0 };
+    }
+
+    if (header->version != 1) {
+        console_printf("invalid version 0x%x\n", header->version);
+        return (elf_t) { 0 };
+    }
+
+    if (header->machine != 243) {
+        console_printf("invalid machine type %x\n", header->ident[5]);
+        return (elf_t) { 0 };
+    }
+
+    // TODO: float abi stuff with header->type
+
+    elf_t elf = {
+        .header = header,
+        .section_headers = data + header->section_header_offset,
+        .program_headers = data + header->program_header_offset,
+
+        .size = size,
+    };
+    elf.string_table = data + elf.section_headers[elf.header->section_header_string_index].offset;
+    return elf;
+}
+

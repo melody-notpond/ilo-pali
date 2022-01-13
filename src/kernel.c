@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "console.h"
+#include "elf.h"
 #include "fdt.h"
 #include "fat16.h"
 #include "interrupt.h"
@@ -12,6 +13,7 @@ trap_t trap = { 0 };
 extern int stack_start;
 
 void kinit(uint64_t hartid, void* fdt) {
+    trap.hartid = hartid;
     trap.xs[REGISTER_SP] = (uint64_t) &stack_start;
     trap.xs[REGISTER_FP] = trap.xs[REGISTER_SP];
 
@@ -38,14 +40,17 @@ void kinit(uint64_t hartid, void* fdt) {
     console_printf("initrd start: %p\ninitrd end: %p\n", initrd_start, initrd_end);
     mark_as_used(initrd_start, (intptr_t) (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
 
+    /*
     mmu_level_1_t* top = create_mmu_table();
     identity_map_kernel(top, &devicetree, initrd_start, initrd_end);
     set_mmu(top);
+    */
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
-    fat_root_dir_entry_t* initd = find_file_in_root_directory(&fat, "initd");
-    void* data = get_fat_cluster_data(&fat, initd->file.first_cluster_low);
-    console_put_hexdump(data, 16);
+    size_t size;
+    void* data = read_file_full(&fat, "initd", &size);
+    console_put_hexdump(data, size);
+    verify_elf(data, size);
 
 	while(1);
 }

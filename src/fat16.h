@@ -1,6 +1,7 @@
 #ifndef FAT16_H
 #define FAT16_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef uint16_t fat_entry_t;
@@ -73,5 +74,9 @@ void* get_fat_cluster_data(fat16_fs_t* fs, uint32_t cluster_id);
 // get_next_cluster(fat16_fs_t*, uint32_t) -> uint32_t
 // Returns the next cluster id if available, or 0 otherwise.
 uint32_t get_next_cluster(fat16_fs_t* fs, uint32_t cluster_id);
+
+// read_file_full(fat16_fs_t*, char*, size_t*) -> void*
+// Reads a file into a buffer, storing the size in the given buffer. Returns NULL on failure.
+void* read_file_full(fat16_fs_t* fs, char* name, size_t* size_ptr);
 
 #endif /* FAT16_H */

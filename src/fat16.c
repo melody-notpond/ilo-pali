@@ -1,8 +1,8 @@
 #include <stdbool.h>
-#include <stddef.h>
 
 #include "console.h"
 #include "fat16.h"
+#include "memory.h"
 
 #define ATTR_READ_ONLY      0x01
 #define ATTR_HIDDEN         0x02
@@ -153,4 +153,24 @@ uint32_t get_next_cluster(fat16_fs_t* fs, uint32_t cluster_id) {
     if (next > fs->cluster_count + 2)
         return 0;
     return next;
+}
+
+// read_file_full(fat16_fs_t*, char*, size_t*) -> void*
+// Reads a file into a buffer, storing the size in the given buffer. Returns NULL on failure.
+void* read_file_full(fat16_fs_t* fs, char* name, size_t* size_ptr) {
+    fat_root_dir_entry_t* entry = find_file_in_root_directory(fs, name);
+    if (entry == NULL)
+        return NULL;
+    size_t page_count = (entry->file.file_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    void* data = alloc_pages(page_count);
+
+    void* cluster_data = NULL;
+    size_t size = fs->sectors_per_cluster * fs->bytes_per_sector;
+    size_t i = 0;
+    for (uint32_t cluster_id = entry->file.first_cluster_low; (cluster_data = get_fat_cluster_data(fs, cluster_id)); cluster_id = get_next_cluster(fs, cluster_id), i++) {
+        memcpy(data + i * size, cluster_data, size);
+    }
+
+    *size_ptr = entry->file.file_size;
+    return data;
 }

@@ -69,9 +69,30 @@ void mmu_map(mmu_level_1_t* top, void* virtual, void* physical, int flags) {
 // mmu_alloc(mmu_level_1_t*, void*, int) -> void*
 // Allocates a new page and inserts it into the mmu table, returning the physical address.
 void* mmu_alloc(mmu_level_1_t* top, void* virtual, int flags) {
-    void* physical = alloc_pages(1);
-    mmu_map(top, virtual, physical, flags);
-    return physical;
+    intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
+    intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
+    intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+
+    if (!MMU_UNWRAP(2, top, vpn2)) {
+        top[vpn2] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+    }
+
+    mmu_level_2_t* level2 = MMU_UNWRAP(2, top, vpn2);
+
+    if (!MMU_UNWRAP(3, level2, vpn1)) {
+        level2[vpn1] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+    }
+
+    mmu_level_3_t* level3 = MMU_UNWRAP(3, level2, vpn1);
+
+    if (!MMU_UNWRAP(4, level3, vpn0)) {
+        void* physical = alloc_pages(1);
+        mmu_map(top, virtual, physical, flags);
+        level3[vpn0] = ((intptr_t) physical & ~0x03) >> 2 | flags | MMU_BIT_VALID;
+        return physical;
+    }
+
+    return NULL;
 }
 
 // mmu_map_range_identity(mmu_level_1_t*, void*, void*, int) -> void

@@ -1,7 +1,7 @@
 #ifndef INTERRUPT_H
 #define INTERRUPT_H
 
-#include <stdint.h>
+#include "process.h"
 
 #define REGISTER_ZERO   0
 #define REGISTER_RA     1
@@ -35,8 +35,6 @@
 #define REGISTER_T4    29
 #define REGISTER_T5    30
 #define REGISTER_T6    31
-
-typedef uint64_t pid_t;
 
 typedef struct {
     uint64_t hartid;

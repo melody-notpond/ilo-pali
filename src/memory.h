@@ -30,4 +30,12 @@ void incr_page_ref_count(void* page, size_t count);
 // Decrements the reference count of the selected pages.
 void dealloc_pages(void* page, size_t count);
 
+// memcpy(void*, const void*, unsigned long int) -> void*
+// Copys the data from one pointer to another.
+void* memcpy(void* dest, const void* src, unsigned long int n);
+
+// memset(void*, int, unsigned long int) -> void*
+// Sets a value over a space. Returns the original pointer.
+void* memset(void* p, int i, unsigned long int n);
+
 #endif /* MEMORY_H */

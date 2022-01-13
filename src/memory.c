@@ -2,6 +2,7 @@
 
 #include "console.h"
 #include "memory.h"
+#include "mmu.h"
 
 extern page_t pages_bottom;
 page_t* heap_bottom;
@@ -77,6 +78,16 @@ void* alloc_pages(size_t count) {
                 }
 
                 page_t* page = ((intptr_t) p - (intptr_t) &pages_bottom) / 2 + heap_bottom;
+
+                mmu_level_1_t* top = get_mmu();
+                if (top) {
+                    for (size_t i = 0; i < count; i++) {
+                        mmu_map(top, page + i, page + i, MMU_BIT_READ | MMU_BIT_WRITE);
+                    }
+                } else {
+                    // hehe bottom
+                }
+
                 for (uint64_t* q = (uint64_t*) page; q < (uint64_t*) (page + count); q++) {
                     *q = 0;
                 }

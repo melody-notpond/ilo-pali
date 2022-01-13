@@ -14,16 +14,20 @@ typedef uint8_t page_t[PAGE_SIZE];
 // Initialises the pages to be ready for page allocation.
 void init_pages(fdt_t* tree);
 
+// mark_as_used(void*, size_t) -> void
+// Marks the given pages as used.
+void mark_as_used(void* page, size_t size);
+
 // alloc_pages(size_t) -> void*
 // Allocates a number of pages.
 void* alloc_pages(size_t count);
 
-// incr_page_ref_count(page_t*, size_t) -> void
+// incr_page_ref_count(void*, size_t) -> void
 // Increments the reference count of the selected pages.
-void incr_page_ref_count(page_t* page, size_t count);
+void incr_page_ref_count(void* page, size_t count);
 
-// dealloc_pages(page_t*, size_t) -> void
+// dealloc_pages(void*, size_t) -> void
 // Decrements the reference count of the selected pages.
-void dealloc_pages(page_t* page, size_t count);
+void dealloc_pages(void* page, size_t count);
 
 #endif /* MEMORY_H */

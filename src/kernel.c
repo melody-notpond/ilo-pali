@@ -5,6 +5,7 @@
 #include "fdt.h"
 #include "fat16.h"
 #include "memory.h"
+#include "mmu.h"
 
 void kinit(uint64_t hartid, void* fdt) {
     console_printf("toki, ale o!\nhartid: %lx\nfdt pointer: %p\n", hartid, fdt);
@@ -18,6 +19,7 @@ void kinit(uint64_t hartid, void* fdt) {
     dump_fdt(&devicetree, NULL);
 
     init_pages(&devicetree);
+    mark_as_used(&devicetree, (be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1) / PAGE_SIZE);
 
     void* chosen = fdt_path(&devicetree, "/chosen", NULL);
     struct fdt_property initrd_start_prop = fdt_get_property(&devicetree, chosen, "linux,initrd-start");
@@ -27,6 +29,11 @@ void kinit(uint64_t hartid, void* fdt) {
     void* initrd_end = (void*) be_to_le(32, initrd_end_prop.data);
 
     console_printf("initrd start: %p\ninitrd end: %p\n", initrd_start, initrd_end);
+    mark_as_used(initrd_start, (intptr_t) (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
+
+    mmu_level_1_t* top = create_mmu_table();
+    identity_map_kernel(top, &devicetree, initrd_start, initrd_end);
+    set_mmu(top);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     fat_root_dir_entry_t* initd = find_file_in_root_directory(&fat, "initd");

@@ -44,10 +44,11 @@ uint16_t* page_ref_count(page_t* page) {
     return (uint16_t*) (&pages_bottom + (page - heap_bottom) / PAGE_SIZE * 2);
 }
 
-// mark_as_used(page_t*, size_t) -> void
+// mark_as_used(void*, size_t) -> void
 // Marks the given pages as used.
-void mark_as_used(page_t* page, size_t count) {
+void mark_as_used(void* page, size_t size) {
     uint16_t* p = page_ref_count(page);
+    size_t count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 
     for (size_t i = 0; i < count; i++) {
         *p = 1;
@@ -56,14 +57,14 @@ void mark_as_used(page_t* page, size_t count) {
 }
 
 // alloc_pages(size_t) -> void*
-// Allocates a number of pages.
+// Allocates a number of pages, zeroing out the values.
 void* alloc_pages(size_t count) {
     uint16_t* p = (uint16_t*) &pages_bottom;
 
     for (; p < (uint16_t*) heap_bottom; p++) {
         if (!*p) {
             bool enough = true;
-            for (uint16_t* q = p; q < p + count; q++) {
+            for (uint16_t* q = p + 1; q < p + count; q++) {
                 if (*q) {
                     enough = false;
                     break;
@@ -75,7 +76,11 @@ void* alloc_pages(size_t count) {
                     *q = 1;
                 }
 
-                page_t* page = ((page_t*) p - &pages_bottom) / 2 * PAGE_SIZE + heap_bottom;
+                page_t* page = ((intptr_t) p - (intptr_t) &pages_bottom) / 2 + heap_bottom;
+                for (uint64_t* q = (uint64_t*) page; q < (uint64_t*) (page + count); q++) {
+                    *q = 0;
+                }
+
                 return page;
             }
         }
@@ -85,9 +90,9 @@ void* alloc_pages(size_t count) {
     return NULL;
 }
 
-// incr_page_ref_count(page_t*, size_t) -> void
+// incr_page_ref_count(void*, size_t) -> void
 // Increments the reference count of the selected pages.
-void incr_page_ref_count(page_t* page, size_t count) {
+void incr_page_ref_count(void* page, size_t count) {
     uint16_t* rc = page_ref_count(page);
     for (size_t i = 0; i < count; i++) {
         if (*rc != UINT16_MAX) {
@@ -97,9 +102,9 @@ void incr_page_ref_count(page_t* page, size_t count) {
     }
 }
 
-// dealloc_pages(page_t*, size_t) -> void
+// dealloc_pages(void*, size_t) -> void
 // Decrements the reference count of the selected pages.
-void dealloc_pages(page_t* page, size_t count) {
+void dealloc_pages(void* page, size_t count) {
     uint16_t* rc = page_ref_count(page);
     for (size_t i = 0; i < count; i++) {
         if (*rc != 0) {

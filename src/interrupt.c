@@ -1,5 +1,8 @@
+#include <stddef.h>
+
 #include "console.h"
 #include "interrupt.h"
+#include "opensbi.h"
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
     console_printf("cause: %lx\ntrap: %p\n", cause, trap);
@@ -47,9 +50,27 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Store access fault
             case 7:
+                while(1);
 
             // Environment call (ie, syscall)
             case 8:
+                switch (trap->xs[REGISTER_A0]) {
+                    case 0: {
+                        char* data = (void*) trap->xs[REGISTER_A1];
+                        size_t length = trap->xs[REGISTER_A2];
+
+                        for (size_t i = 0; i < length; i++) {
+                            sbi_console_putchar(data[i]);
+                        }
+
+                        break;
+                    }
+
+                    default:
+                        console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
+                }
+                trap->pc += 4;
+                break;
 
             // Instruction page fault
             case 12:

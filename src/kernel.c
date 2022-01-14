@@ -73,6 +73,11 @@ void kinit(uint64_t hartid, void* fdt) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
 
+    uint64_t sstatus;
+    asm volatile("csrr %0, sstatus" : "=r" (sstatus));
+    sstatus |= 1 << 18;
+    asm volatile("csrw sstatus, %0" : "=r" (sstatus));
+
     console_puts("starting initd\n");
     switch_to_process(&trap, 0);
 

@@ -63,8 +63,8 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
     if (current_pid == 1) {
         top = get_mmu();
     } else {
-        top = create_mmu_table();
-        identity_map_kernel(top, NULL, NULL, NULL);
+        //top = create_mmu_table();
+        //identity_map_kernel(top, NULL, NULL, NULL);
     }
 
     page_t* max_page = NULL;

@@ -11,6 +11,12 @@ elf_t verify_elf(void* data, size_t size) {
         return (elf_t) { 0 };
     }
 
+
+    if (header->ident[4] != 2) {
+        console_printf("unknown elf class 0x%x\n", header->ident[4]);
+        return (elf_t) { 0 };
+    }
+
     if (header->ident[5] != 1) {
         console_printf("unknown data encoding 0x%x\n", header->ident[5]);
         return (elf_t) { 0 };
@@ -30,12 +36,20 @@ elf_t verify_elf(void* data, size_t size) {
 
     elf_t elf = {
         .header = header,
-        .section_headers = data + header->section_header_offset,
-        .program_headers = data + header->program_header_offset,
-
         .size = size,
     };
-    elf.string_table = data + elf.section_headers[elf.header->section_header_string_index].offset;
+    elf.string_table = (char*) data + get_elf_section_header(&elf, elf.header->section_header_string_index)->offset;
     return elf;
 }
 
+// get_elf_section_header(elf_t*, size_t) -> elf_section_header_t*
+// Returns the section header at the provided index.
+elf_section_header_t* get_elf_section_header(elf_t* elf, size_t i) {
+    return ((void*) elf->header) + elf->header->section_header_offset + elf->header->section_header_entry_size * i;
+}
+
+// get_elf_program_header(elf_t*, size_t) -> elf_section_header_t*
+// Returns the section header at the provided index.
+elf_program_header_t* get_elf_program_header(elf_t* elf, size_t i) {
+    return ((void*) elf->header) + elf->header->program_header_offset + elf->header->program_header_entry_size * i;
+}

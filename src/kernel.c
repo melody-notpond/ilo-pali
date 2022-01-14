@@ -8,14 +8,14 @@
 #include "interrupt.h"
 #include "memory.h"
 #include "mmu.h"
+#include "process.h"
 
 trap_t trap = { 0 };
 
 void kinit(uint64_t hartid, void* fdt) {
-    extern int stack_start;
+    extern int stack_top;
     trap.hartid = hartid;
-    trap.xs[REGISTER_SP] = (uint64_t) &stack_start;
-    trap.xs[REGISTER_FP] = trap.xs[REGISTER_SP];
+    trap.interrupt_stack = (uint64_t) &stack_top;
 
     trap_t* current_trap = &trap;
     asm volatile("csrw sscratch, %0" : "=r" (current_trap));
@@ -24,7 +24,7 @@ void kinit(uint64_t hartid, void* fdt) {
 
     fdt_t devicetree = verify_fdt(fdt);
     if (devicetree.header == NULL) {
-        console_printf("Invalid fdt pointer %p\n", fdt);
+        console_printf("invalid fdt pointer %p\n", fdt);
         while(1);
     }
 
@@ -48,11 +48,33 @@ void kinit(uint64_t hartid, void* fdt) {
     mark_as_used(initrd_start, (intptr_t) (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
+    if (fat.fat == NULL) {
+        console_puts("initrd image is invalid\n");
+        while(1);
+    }
+
     console_puts("verified initrd image\n");
     size_t size;
     void* data = read_file_full(&fat, "initd", &size);
-    console_put_hexdump(data, size);
-    verify_elf(data, size);
+    elf_t elf = verify_elf(data, size);
+    if (elf.header == NULL) {
+        console_puts("failed to verify initd elf file\n");
+        while(1);
+    }
+
+    init_processes();
+    spawn_process_from_elf(0, &elf, 2);
+
+    for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
+        mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
+    }
+
+    for (page_t* p = (page_t*) devicetree.header; p < (page_t*) ((void*) devicetree.header + be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1); p++) {
+        mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
+    }
+
+    console_puts("starting initd\n");
+    switch_to_process(&trap, 0);
 
 	while(1);
 }

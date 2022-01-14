@@ -29,7 +29,7 @@ void init_pages(fdt_t* tree) {
     page_t* addr = (page_t*) be_to_le(32 * addr_cell, reg.data);
     size_t len = be_to_le(32 * size_cell, reg.data + addr_cell * 4) - (&pages_bottom - addr);
 
-    size_t page_rc_count = len / PAGE_SIZE / PAGE_SIZE * 2;
+    size_t page_rc_count = (len - ((void*) &pages_bottom - (void*) addr)) / PAGE_SIZE / PAGE_SIZE * 2;
     console_printf("[init_pages] page_rc_count: 0x%lx\n", page_rc_count);
 
     heap_bottom = &pages_bottom + page_rc_count;
@@ -62,7 +62,7 @@ void mark_as_used(void* page, size_t size) {
 void* alloc_pages(size_t count) {
     uint16_t* p = (uint16_t*) &pages_bottom;
 
-    for (; p < (uint16_t*) heap_bottom; p++) {
+    for (; p < (uint16_t*) heap_bottom - count; p++) {
         if (!*p) {
             bool enough = true;
             for (uint16_t* q = p + 1; q < p + count; q++) {

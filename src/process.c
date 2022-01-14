@@ -1,4 +1,128 @@
+#include "console.h"
+#include "memory.h"
+#include "mmu.h"
 #include "process.h"
 
+typedef enum {
+    PROCESS_STATE_DEAD = 0,
+    PROCESS_STATE_RUNNING,
+    PROCESS_STATE_BLOCK_SLEEP,
+    PROCESS_STATE_BLOCK_LOCK,
+    PROCESS_STATE_WAIT,
+} process_state_t;
 
+typedef struct {
+    pid_t pid;
+    pid_t ppid;
 
+    process_state_t state;
+    mmu_level_1_t* mmu_data;
+
+    uint64_t pc;
+    uint64_t xs[32];
+    double fs[32];
+} process_t;
+
+process_t* processes;
+pid_t* job_queue;
+
+pid_t MAX_PID = 1000;
+pid_t current_pid = 0;
+
+// init_processes() -> void
+// Initialises process related stuff.
+void init_processes() {
+    processes = alloc_pages((MAX_PID * sizeof(process_t) + PAGE_SIZE - 1) / PAGE_SIZE);
+    job_queue = alloc_pages((MAX_PID * sizeof(pid_t) + PAGE_SIZE - 1) / PAGE_SIZE);
+}
+
+// spawn_process_from_elf(pid_t, elf_t*, size_t) -> pid_t
+// Spawns a process using the given elf file and parent pid. Returns -1 on failure.
+pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
+    if (elf->header->type != ELF_EXECUTABLE) {
+        console_puts("ELF file is not executable\n");
+        return -1;
+    }
+
+    pid_t pid = -1;
+    if (current_pid < MAX_PID) {
+        pid = current_pid++;
+    } else {
+        for (size_t i = 0; i < MAX_PID; i++) {
+            if (processes[i].state == PROCESS_STATE_DEAD) {
+                pid = i;
+                break;
+            }
+        }
+
+        if (pid == (uint64_t) -1)
+            return -1;
+    }
+
+    mmu_level_1_t* top;
+    if (current_pid == 1) {
+        top = get_mmu();
+    } else {
+        top = create_mmu_table();
+        identity_map_kernel(top, NULL, NULL, NULL);
+    }
+
+    page_t* max_page = NULL;
+    for (size_t i = 0; i < elf->header->program_header_num; i++) {
+        elf_program_header_t* program_header = get_elf_program_header(elf, i);
+        uint32_t flags_raw = program_header->flags;
+        int flags = 0;
+        if (flags_raw & 0x1)
+            flags |= MMU_BIT_EXECUTE;
+        else if (flags_raw & 0x2)
+            flags |= MMU_BIT_WRITE;
+        if (flags_raw & 0x4)
+            flags |= MMU_BIT_READ;
+
+        uint64_t page_count = (program_header->memory_size + PAGE_SIZE - 1) / PAGE_SIZE;
+        for (uint64_t i = 0; i < page_count; i++) {
+            void* page = mmu_alloc(top, (void*) program_header->virtual_addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
+
+            if ((page_t*) page > max_page)
+                max_page = page;
+
+            if (i * PAGE_SIZE < program_header->file_size) {
+                memcpy(page, (void*) elf->header + program_header->offset + i * PAGE_SIZE, (program_header->file_size < (i + 1) * PAGE_SIZE ? program_header->file_size - i * PAGE_SIZE : PAGE_SIZE));
+            }
+        }
+    }
+
+    for (size_t i = 1; i <= stack_size; i++) {
+        mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    }
+    processes[pid].xs[REGISTER_SP] = (uint64_t) max_page + PAGE_SIZE * (stack_size + 1) - 8;
+    processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
+
+    processes[pid].pid = pid;
+    processes[pid].ppid = parent_pid;
+    processes[pid].mmu_data = top;
+    processes[pid].pc = elf->header->entry;
+    processes[pid].state = PROCESS_STATE_WAIT;
+    return pid;
+}
+
+// switch_to_process(trap_t*, pid_t) -> void
+// Jumps to the given process.
+void switch_to_process(trap_t* trap, pid_t pid) {
+    trap->pid = pid;
+    trap->pc = processes[pid].pc;
+
+    for (int i = 0; i < 32; i++) {
+        trap->xs[i] = processes[pid].xs[i];
+    }
+
+    for (int i = 0; i < 32; i++) {
+        trap->fs[i] = processes[pid].fs[i];
+    }
+
+    set_mmu(processes[pid].mmu_data);
+
+    processes[pid].state = PROCESS_STATE_RUNNING;
+
+    jump_out_of_trap(trap);
+}

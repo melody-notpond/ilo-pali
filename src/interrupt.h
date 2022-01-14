@@ -1,7 +1,7 @@
 #ifndef INTERRUPT_H
 #define INTERRUPT_H
 
-#include "process.h"
+#include <stdint.h>
 
 #define REGISTER_ZERO   0
 #define REGISTER_RA     1
@@ -36,12 +36,20 @@
 #define REGISTER_T5    30
 #define REGISTER_T6    31
 
+typedef uint64_t pid_t;
+
 typedef struct {
     uint64_t hartid;
     pid_t pid;
     uint64_t pc;
+    uint64_t interrupt_stack;
     uint64_t xs[32];
     double fs[32];
 } trap_t;
+
+
+// jump_out_of_trap(trap_t*) -> void
+// Jumps out of a trap.
+void jump_out_of_trap(trap_t* trap);
 
 #endif /* INTERRUPT_H */

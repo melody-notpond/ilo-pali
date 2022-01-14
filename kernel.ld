@@ -24,6 +24,8 @@ SECTIONS
     .sdata : { *(.sdata) }
     .debug : { *(.debug) }
 
+    . += 0x1000;
+
     . = ALIGN(4096);
     PROVIDE(stack_start = .);
     . += 0x4000;

@@ -36,6 +36,10 @@ void flush_mmu();
 // Creates an empty mmu table.
 mmu_level_1_t* create_mmu_table();
 
+// mmu_premap(mmu_level_1_t*, void*) -> void
+// Premaps the given address in the given mmu table.
+void mmu_premap(mmu_level_1_t* top, void* virtual_);
+
 // mmu_map(mmu_level_1_t*, void*, void*, int) -> void
 // Maps the given virtual address to the given physical address.
 void mmu_map(mmu_level_1_t* top, void* virtual_, void* physical, int flags);

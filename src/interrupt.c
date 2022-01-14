@@ -1,7 +1,7 @@
 #include "console.h"
 #include "interrupt.h"
 
-void interrupt_handler(uint64_t cause, trap_t* trap) {
+trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
     console_printf("cause: %lx\ntrap: %p\n", cause, trap);
 
     if (cause & 0x8000000000000000) {
@@ -65,4 +65,6 @@ void interrupt_handler(uint64_t cause, trap_t* trap) {
                 while(1);
         }
     }
+
+    return trap;
 }

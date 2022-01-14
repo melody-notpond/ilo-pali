@@ -5,36 +5,40 @@ EMU    = qemu-system-riscv64
 
 CODE = src/
 
-CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles -Tkernel.ld -g -Wall -Wextra
-ifeq ($(CC),clang)
-	CFLAGS += -target $(TARGET) -mno-relax -Wno-unused-command-line-argument
-endif
-
 EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -m 256m -nographic -global virtio-mmio.force-legacy=false -s
 ifdef WAIT_GDB
 	EFLAGS += -S
 endif
 
-.PHONY: all clean run gdb
+.PHONY: all clean run gdb kernel boot build boot_dir
 
-all: $(CODE)*.s $(CODE)*.c
-	mkdir -p build
-	$(CC) $(CFLAGS) $? -o build/kernel
+all: kernel boot
 
 clean:
 	-rm -r build/
 
+kernel: build
+	$(MAKE) -C kernel/ CC=$(CC)
+
 run:
 	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
 
-disc:
+boot: boot_dir
+	$(MAKE) -C boot/a CC=$(CC)
+	$(MAKE) -C boot/b CC=$(CC)
+
+boot_dir: build
+	mkdir -p build/boot
+
+build:
 	mkdir -p build
+
+idisc: boot
 	dd if=/dev/zero of=build/initrd bs=4M count=3
 	mkfs.fat -F 16 -n INITRD build/initrd
 	mkdir -p mnt
 	sudo mount build/initrd mnt/
-	echo 'echo "uwu" > mnt/uwu.txt' | sudo su
-	echo 'echo "initd" > mnt/initd' | sudo su
+	sudo cp build/boot/* mnt/
 	sudo umount mnt
 
 gdb:

@@ -4,6 +4,9 @@
 // verify_elf(void* data, size_t size) -> elf_t
 // Verifies an elf file.
 elf_t verify_elf(void* data, size_t size) {
+    if (data == NULL)
+        return (elf_t) { 0 };
+
     elf_header_t* header = data;
 
     if (header->ident[0] != 0x7f || header->ident[1] != 'E' || header->ident[2] != 'L' || header->ident[3] != 'F') {

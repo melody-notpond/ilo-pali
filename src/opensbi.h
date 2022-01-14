@@ -24,5 +24,21 @@ void sbi_console_putchar(char);
 // Gets a character from the UART port.
 int sbi_console_getchar();
 
+// sbi_set_timer(unsigned long long) -> struct sbiret
+// Sets the timer value.
+struct sbiret sbi_set_timer(unsigned long long stime_value);
+
+// sbi_hart_start(unsigned long, unsigned long, unsigned long) -> struct sbiret
+// Starts a hart at the given start address with the given opaque data.
+struct sbiret sbi_hart_start(unsigned long hartid, unsigned long start_addr, unsigned long opaque);
+
+// sbi_hart_stop(void) -> struct sbiret
+// Stops a hart.
+struct sbiret sbi_hart_stop(void);
+
+// sbi_hart_get_status(unsigned long) -> struct sbiret
+// Gets the current status of a hart.
+struct sbiret sbi_hart_get_status(unsigned long hartid);
+
 #endif /* OPENSBI_H */
 

@@ -160,7 +160,7 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
     mmu_map_range_identity(top, &pages_bottom, heap_bottom, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
 
     // Map fdt
-    if (fdt->header != NULL)
+    if (fdt != NULL)
         mmu_map_range_identity(top, fdt->header, ((void*) fdt->header) + be_to_le(32, fdt->header->totalsize), MMU_BIT_READ);
 
     // Map initrd

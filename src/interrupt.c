@@ -2,10 +2,11 @@
 
 #include "console.h"
 #include "interrupt.h"
+#include "process.h"
 #include "opensbi.h"
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
-    console_printf("cause: %lx\ntrap: %p\n", cause, trap);
+    //console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
 
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
@@ -13,12 +14,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
         switch (cause) {
             // Software interrupt
             case 1:
+                while(1);
 
             // Timer interrupt
-            case 5:
+            case 5: {
+                pid_t next_pid = get_next_waiting_process(trap->pid);
+                switch_to_process(trap, next_pid);
+                uint64_t time = 0;
+                asm volatile("csrr %0, time" : "=r" (time));
+                sbi_set_timer(time + 10000);
+                break;
+            }
 
             // External interrupt
             case 9:
+                while(1);
                 break;
 
             // Everything else is either invalid or handled by the firmware.

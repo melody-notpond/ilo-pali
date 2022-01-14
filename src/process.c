@@ -24,7 +24,7 @@ typedef struct {
 } process_t;
 
 process_t* processes;
-pid_t* job_queue;
+size_t processes_list_page_count;
 
 pid_t MAX_PID = 1000;
 pid_t current_pid = 0;
@@ -32,8 +32,8 @@ pid_t current_pid = 0;
 // init_processes() -> void
 // Initialises process related stuff.
 void init_processes() {
-    processes = alloc_pages((MAX_PID * sizeof(process_t) + PAGE_SIZE - 1) / PAGE_SIZE);
-    job_queue = alloc_pages((MAX_PID * sizeof(pid_t) + PAGE_SIZE - 1) / PAGE_SIZE);
+    processes_list_page_count = (MAX_PID * sizeof(process_t) + PAGE_SIZE - 1) / PAGE_SIZE;
+    processes = alloc_pages(processes_list_page_count);
 }
 
 // spawn_process_from_elf(pid_t, elf_t*, size_t) -> pid_t
@@ -63,8 +63,12 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
     if (current_pid == 1) {
         top = get_mmu();
     } else {
-        //top = create_mmu_table();
-        //identity_map_kernel(top, NULL, NULL, NULL);
+        top = create_mmu_table();
+        identity_map_kernel(top, NULL, NULL, NULL);
+        for (size_t i = 0; i < processes_list_page_count; i++) {
+            void* p = (void*) processes + i * PAGE_SIZE;
+            mmu_map(top, p, p, MMU_BIT_READ | MMU_BIT_WRITE);
+        }
     }
 
     page_t* max_page = NULL;
@@ -109,6 +113,19 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
 // switch_to_process(trap_t*, pid_t) -> void
 // Jumps to the given process.
 void switch_to_process(trap_t* trap, pid_t pid) {
+    if (processes[trap->pid].state == PROCESS_STATE_RUNNING) {
+        processes[trap->pid].state = PROCESS_STATE_WAIT;
+        processes[trap->pid].pc = trap->pc;
+
+        for (int i = 0; i < 32; i++) {
+            processes[trap->pid].xs[i] = trap->xs[i];
+        }
+
+        for (int i = 0; i < 32; i++) {
+            processes[trap->pid].fs[i] = trap->fs[i];
+        }
+    }
+
     trap->pid = pid;
     trap->pc = processes[pid].pc;
 
@@ -123,6 +140,15 @@ void switch_to_process(trap_t* trap, pid_t pid) {
     set_mmu(processes[pid].mmu_data);
 
     processes[pid].state = PROCESS_STATE_RUNNING;
+}
 
-    jump_out_of_trap(trap);
+// get_next_waiting_process(pid_t) -> pid_t
+// Searches for the next waiting process. Returns the given pid if not found.
+pid_t get_next_waiting_process(pid_t pid) {
+    for (pid_t p = pid + 1; p != pid; p = (p + 1 < MAX_PID ? p + 1 : 0)) {
+        if (processes[p].state == PROCESS_STATE_WAIT)
+            return p;
+    }
+
+    return pid;
 }

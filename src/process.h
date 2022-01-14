@@ -20,4 +20,8 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size);
 // Jumps to the given process.
 void switch_to_process(trap_t* trap, pid_t pid);
 
+// get_next_waiting_process(pid_t) -> pid_t
+// Searches for the next waiting process. Returns the given pid if not found.
+pid_t get_next_waiting_process(pid_t pid);
+
 #endif /* PROCESS_H */

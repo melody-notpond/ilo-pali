@@ -42,13 +42,18 @@ void init_pages(fdt_t* tree) {
 // page_ref_count(page_t*) -> uint16_t*
 // Returns the reference count for the page as a pointer.
 uint16_t* page_ref_count(page_t* page) {
-    return (uint16_t*) &pages_bottom + ((intptr_t) page - (intptr_t) heap_bottom) / PAGE_SIZE;
+    if (page > heap_bottom)
+        return (uint16_t*) &pages_bottom + ((intptr_t) page - (intptr_t) heap_bottom) / PAGE_SIZE;
+    return NULL;
 }
 
 // mark_as_used(void*, size_t) -> void
 // Marks the given pages as used.
 void mark_as_used(void* page, size_t size) {
     uint16_t* p = page_ref_count(page);
+    if (p == NULL)
+        return;
+
     size_t count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 
     for (size_t i = 0; i < count; i++) {
@@ -105,6 +110,9 @@ void* alloc_pages(size_t count) {
 // Increments the reference count of the selected pages.
 void incr_page_ref_count(void* page, size_t count) {
     uint16_t* rc = page_ref_count(page);
+    if (rc == NULL)
+        return;
+
     for (size_t i = 0; i < count; i++) {
         if (*rc != UINT16_MAX && *rc != 0) {
             *rc += 1;
@@ -117,6 +125,9 @@ void incr_page_ref_count(void* page, size_t count) {
 // Decrements the reference count of the selected pages.
 void dealloc_pages(void* page, size_t count) {
     uint16_t* rc = page_ref_count(page);
+    if (rc == NULL)
+        return;
+
     for (size_t i = 0; i < count; i++) {
         if (*rc != 0) {
             *rc -= 1;

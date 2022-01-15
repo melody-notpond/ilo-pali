@@ -133,9 +133,9 @@ intptr_t mmu_walk(mmu_level_1_t* top, void* virtual) {
     return 0;
 }
 
-// mmu_remove(mmu_level_1_t*, void*) -> void
+// mmu_remove(mmu_level_1_t*, void*) -> void*
 // Removes an entry from the mmu table.
-void mmu_remove(mmu_level_1_t* top, void* virtual) {
+void* mmu_remove(mmu_level_1_t* top, void* virtual) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
@@ -145,9 +145,13 @@ void mmu_remove(mmu_level_1_t* top, void* virtual) {
 
         if (MMU_UNWRAP(3, level2[vpn1])) {
             mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+            void* physical = MMU_UNWRAP(4, level3[vpn0]);
             level3[vpn0] = 0;
+            return physical;
         }
     }
+
+    return NULL;
 }
 
 // mmu_map_range_identity(mmu_level_1_t*, void*, void*, int) -> void

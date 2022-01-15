@@ -84,8 +84,12 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
     processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
     processes[pid].last_virtual_page += PAGE_SIZE;
 
+    process_t* parent = get_process(parent_pid);
+    if (parent != NULL)
+        processes[pid].user = parent->user;
+    else
+        processes[pid].user = 0;
     processes[pid].pid = pid;
-    processes[pid].ppid = parent_pid;
     processes[pid].mmu_data = top;
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
@@ -138,5 +142,7 @@ pid_t get_next_waiting_process(pid_t pid) {
 // get_process(pid_t) -> process_t*
 // Gets the process associated with the pid.
 process_t* get_process(pid_t pid) {
+    if (processes[pid].state == PROCESS_STATE_DEAD)
+        return NULL;
     return &processes[pid];
 }

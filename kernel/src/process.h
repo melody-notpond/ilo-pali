@@ -8,6 +8,7 @@
 #include "mmu.h"
 
 typedef uint64_t pid_t;
+typedef uint64_t uid_t;
 
 typedef enum {
     PROCESS_STATE_DEAD = 0,
@@ -19,7 +20,8 @@ typedef enum {
 
 typedef struct {
     pid_t pid;
-    pid_t ppid;
+
+    uid_t user;
 
     process_state_t state;
     mmu_level_1_t* mmu_data;

@@ -168,6 +168,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         }
 
                         trap->xs[REGISTER_A0] = 0;
+                        clean_mmu_table(process->mmu_data);
                         flush_mmu();
                         break;
                     }
@@ -181,7 +182,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         process_t* process = get_process(trap->pid);
                         for (size_t i = 0; i < count; i++) {
                             if (mmu_walk(process->mmu_data, addr + i * PAGE_SIZE) & MMU_BIT_USER) {
-                                mmu_remove(process->mmu_data, addr + i * PAGE_SIZE);
+                                void* physical = mmu_remove(process->mmu_data, addr + i * PAGE_SIZE);
+                                dealloc_pages(physical, 1);
                             } else {
                                 trap->xs[REGISTER_A0] = 1;
                                 return trap;
@@ -192,6 +194,44 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // getpid() -> pid_t
+                    // Gets the pid of the current process.
+                    case 4:
+                        trap->xs[REGISTER_A0] = trap->pid;
+                        break;
+
+                    // getuid(pid_t pid) -> uid_t
+                    // Gets the uid of the given process. Returns -1 if the process doesn't exist.
+                    case 5: {
+                        pid_t pid = trap->xs[REGISTER_A1];
+                        process_t* process = get_process(pid);
+                        if (process)
+                            trap->xs[REGISTER_A0] = process->user;
+                        else
+                            trap->xs[REGISTER_A0] = -1;
+                        break;
+                    }
+
+                    // setuid(pid_t pid, uid_t uid) -> int status
+                    // Sets the uid of the given process (can only be done by processes with uid = 0). Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
+                    case 6: {
+                        pid_t pid = trap->xs[REGISTER_A1];
+                        uid_t uid = trap->xs[REGISTER_A2];
+
+                        process_t* current = get_process(trap->pid);
+
+                        if (current->user != 0) {
+                            trap->xs[REGISTER_A0] = 2;
+                            break;
+                        }
+
+                        process_t* process = get_process(pid);
+                        if (process) {
+                            process->user = uid;
+                            trap->xs[REGISTER_A0] = 0;
+                        } else trap->xs[REGISTER_A0] = 1;
+                        break;
+                    }
 
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);

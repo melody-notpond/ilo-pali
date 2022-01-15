@@ -103,13 +103,9 @@ ilo pali microkernel features:
 
         Gets the pid of the current process.
 
-    - `getppid() -> pid_t`
-
-        Gets the pid of the parent process of the current process. Returns -1 if the parent process does not exist or died.
-
     - `getuid(pid_t pid) -> uid_t`
 
-        Gets the uid of the given process.
+        Gets the uid of the given process. Returns -1 if the process doesn't exist.
 
     - `setuid(pid_t pid, uid_t uid) -> int status`
 

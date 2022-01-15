@@ -56,9 +56,9 @@ void mmu_change_flags(mmu_level_1_t* top, void* virtual_, int flags);
 // Walks the mmu page table to find the physical address for the corresponding virtual address.
 intptr_t mmu_walk(mmu_level_1_t* top, void* virtual_);
 
-// mmu_remove(mmu_level_1_t*, void*) -> void
+// mmu_remove(mmu_level_1_t*, void*) -> void*
 // Removes an entry from the mmu table.
-void mmu_remove(mmu_level_1_t* top, void* virtual_);
+void* mmu_remove(mmu_level_1_t* top, void* virtual_);
 
 // identity_map_kernel(fdt_t*, void*, void*) -> void
 // Identity maps the kernel in the given mmu table.

@@ -29,12 +29,12 @@ void init_pages(fdt_t* tree) {
     page_t* addr = (page_t*) be_to_le(32 * addr_cell, reg.data);
     size_t len = be_to_le(32 * size_cell, reg.data + addr_cell * 4) - (&pages_bottom - addr);
 
-    size_t page_rc_count = (len - ((void*) &pages_bottom - (void*) addr)) / PAGE_SIZE / PAGE_SIZE * 2;
+    size_t page_rc_count = len / PAGE_SIZE / PAGE_SIZE * 2;
     console_printf("[init_pages] page_rc_count: 0x%lx\n", page_rc_count);
 
     heap_bottom = &pages_bottom + page_rc_count;
 
-    for (volatile uint64_t* clear = (uint64_t*) &pages_bottom; clear < (uint64_t*) heap_bottom; clear++) {
+    for (uint64_t* clear = (uint64_t*) &pages_bottom; clear < (uint64_t*) heap_bottom; clear++) {
         *clear = 0;
     }
 }
@@ -42,7 +42,7 @@ void init_pages(fdt_t* tree) {
 // page_ref_count(page_t*) -> uint16_t*
 // Returns the reference count for the page as a pointer.
 uint16_t* page_ref_count(page_t* page) {
-    return (uint16_t*) (&pages_bottom + (page - heap_bottom) / PAGE_SIZE * 2);
+    return (uint16_t*) &pages_bottom + ((intptr_t) page - (intptr_t) heap_bottom) / PAGE_SIZE;
 }
 
 // mark_as_used(void*, size_t) -> void

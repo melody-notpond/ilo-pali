@@ -8,4 +8,4 @@ CODE = src/
 .PHONY: all
 
 all: $(CODE)*.s $(CODE)*.c
-	$(CC) $(CFLAGS) $? -o ../../build/boot/b
+	$(CC) $(CFLAGS) $? -o ../../build/boot/initd

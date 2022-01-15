@@ -24,8 +24,7 @@ run:
 	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
 
 boot: boot_dir
-	$(MAKE) -C boot/a CC=$(CC)
-	$(MAKE) -C boot/b CC=$(CC)
+	$(MAKE) -C boot/initd CC=$(CC)
 
 boot_dir: build
 	mkdir -p build/boot

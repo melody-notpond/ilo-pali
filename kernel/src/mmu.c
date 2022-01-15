@@ -26,6 +26,7 @@ void set_mmu(mmu_level_1_t* top) {
     } else {
         uint64_t mmu = 0;
         asm volatile("csrw satp, %0" : "=r" (mmu));
+        asm volatile("sfence.vma");
     }
 }
 
@@ -86,7 +87,6 @@ void* mmu_alloc(mmu_level_1_t* top, void* virtual, int flags) {
 
     if (!MMU_UNWRAP(4, level3[vpn0])) {
         void* physical = alloc_pages(1);
-        mmu_map(top, virtual, physical, flags);
         level3[vpn0] = ((intptr_t) physical & ~0x03) >> 2 | flags | MMU_BIT_VALID;
         return physical;
     }
@@ -112,6 +112,25 @@ void mmu_change_flags(mmu_level_1_t* top, void* virtual, int flags) {
             }
         }
     }
+}
+
+// mmu_walk(mmu_level_1_t*, void*) -> intptr_t
+// Walks the mmu page table to find the physical address for the corresponding virtual address.
+intptr_t mmu_walk(mmu_level_1_t* top, void* virtual) {
+    intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
+    intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
+    intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+
+    if (MMU_UNWRAP(2, top[vpn2])) {
+        mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+
+        if (MMU_UNWRAP(3, level2[vpn1])) {
+            mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+            return level3[vpn0];
+        }
+    }
+
+    return 0;
 }
 
 // mmu_remove(mmu_level_1_t*, void*) -> void

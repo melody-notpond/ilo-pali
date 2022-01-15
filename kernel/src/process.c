@@ -1,27 +1,6 @@
 #include "console.h"
 #include "memory.h"
-#include "mmu.h"
 #include "process.h"
-
-typedef enum {
-    PROCESS_STATE_DEAD = 0,
-    PROCESS_STATE_RUNNING,
-    PROCESS_STATE_BLOCK_SLEEP,
-    PROCESS_STATE_BLOCK_LOCK,
-    PROCESS_STATE_WAIT,
-} process_state_t;
-
-typedef struct {
-    pid_t pid;
-    pid_t ppid;
-
-    process_state_t state;
-    mmu_level_1_t* mmu_data;
-
-    uint64_t pc;
-    uint64_t xs[32];
-    double fs[32];
-} process_t;
 
 process_t* processes;
 size_t processes_list_page_count;
@@ -85,10 +64,11 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
 
         uint64_t page_count = (program_header->memory_size + PAGE_SIZE - 1) / PAGE_SIZE;
         for (uint64_t i = 0; i < page_count; i++) {
-            void* page = mmu_alloc(top, (void*) program_header->virtual_addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
+            void* virtual = (void*) program_header->virtual_addr + i * PAGE_SIZE;
+            void* page = mmu_alloc(top, virtual, flags | MMU_BIT_USER);
 
-            if ((page_t*) page > max_page)
-                max_page = page;
+            if ((page_t*) virtual > max_page)
+                max_page = virtual;
 
             if (i * PAGE_SIZE < program_header->file_size) {
                 memcpy(page, (void*) elf->header + program_header->offset + i * PAGE_SIZE, (program_header->file_size < (i + 1) * PAGE_SIZE ? program_header->file_size - i * PAGE_SIZE : PAGE_SIZE));
@@ -99,8 +79,10 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
-    processes[pid].xs[REGISTER_SP] = (uint64_t) max_page + PAGE_SIZE * (stack_size + 1) - 8;
+    processes[pid].last_virtual_page = (void*) max_page + PAGE_SIZE * (stack_size + 1);
+    processes[pid].xs[REGISTER_SP] = (uint64_t) processes[pid].last_virtual_page - 8;
     processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
+    processes[pid].last_virtual_page += PAGE_SIZE;
 
     processes[pid].pid = pid;
     processes[pid].ppid = parent_pid;
@@ -151,4 +133,10 @@ pid_t get_next_waiting_process(pid_t pid) {
     }
 
     return pid;
+}
+
+// get_process(pid_t) -> process_t*
+// Gets the process associated with the pid.
+process_t* get_process(pid_t pid) {
+    return &processes[pid];
 }

@@ -30,9 +30,9 @@ ilo pali microkernel features:
 
         Deallocates the page(s) containing the given address. Returns 0 on success and 1 if a page was never allocated by this process.
 
-    - `page_permissions(void* addr, int permissions) -> int status`
+    - `page_permissions(void* addr, size_t count, int permissions) -> int status`
 
-        Modifies the permissions of the given page. Returns 0 on success, 1 if the page was never allocated, and 2 if both write and execute were attempted to be set.
+        Modifies the permissions of the given pages. Returns 0 on success, 1 if the page was never allocated, and 2 if both write and execute were attempted to be set.
 
         Permissions:
          - READ    - 0b100
@@ -70,9 +70,9 @@ ilo pali microkernel features:
 
         Sets the process's receive handler. Returns 0 on success, and 1 if the address is not in an allocated executable page. The receive handler may not interrupt interrupt handlers, but may interrupt all other process code.
 
-    - `uart_write(size_t size, void* data) -> int status`
+    - `uart_write(size_t size, void* data) -> void`
 
-        Writes data to the UART port. Returns 0 on success, and 1 on failure.
+        Writes data to the UART port.
 
     - `interrupt_claim(uint64_t id, int (*handler)(uint64_t id)) -> int status`
 

@@ -57,31 +57,16 @@ void kinit(uint64_t hartid, void* fdt) {
     console_puts("verified initrd image\n");
     init_processes();
 
-    {
-        size_t size;
-        void* data = read_file_full(&fat, "a", &size);
-        elf_t elf = verify_elf(data, size);
-        if (elf.header == NULL) {
-            console_puts("failed to verify initd elf file\n");
-            while(1);
-        }
-
-        spawn_process_from_elf(0, &elf, 2);
-        dealloc_pages(data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
+    size_t size;
+    void* data = read_file_full(&fat, "initd", &size);
+    elf_t elf = verify_elf(data, size);
+    if (elf.header == NULL) {
+        console_puts("failed to verify initd elf file\n");
+        while(1);
     }
 
-    {
-        size_t size;
-        void* data = read_file_full(&fat, "b", &size);
-        elf_t elf = verify_elf(data, size);
-        if (elf.header == NULL) {
-            console_puts("failed to verify initd elf file\n");
-            while(1);
-        }
-
-        spawn_process_from_elf(0, &elf, 2);
-        dealloc_pages(data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
-    }
+    spawn_process_from_elf(0, &elf, 2);
+    dealloc_pages(data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);

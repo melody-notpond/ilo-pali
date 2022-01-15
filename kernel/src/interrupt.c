@@ -262,6 +262,27 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // spawn(void* exe, size_t exe_size, void* args, size_t args_size) -> pid_t child
+                    // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
+                    // The executable may be a valid elf file. All data will be copied over to a new set of pages.
+                    case 8: {
+                        void* exe = (void*) trap->xs[REGISTER_A1];
+                        size_t exe_size = trap->xs[REGISTER_A2];
+                        void* args = (void*) trap->xs[REGISTER_A3];
+                        size_t args_size = trap->xs[REGISTER_A4];
+
+                        elf_t elf = verify_elf(exe, exe_size);
+                        if (elf.header == NULL) {
+                            trap->xs[REGISTER_A0] = 0;
+                            break;
+                        }
+
+                        pid_t pid = spawn_process_from_elf(trap->pid, &elf, 2, args, args_size);
+
+                        trap->xs[REGISTER_A0] = pid;
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                 }

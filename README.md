@@ -41,7 +41,7 @@ ilo pali microkernel features:
 
     - `spawn(void* exe, size_t exe_size, void** deps, size_t dep_sizes, size_t dep_count, void* args, size_t args_size) -> pid_t child`
 
-        Spans a process with the given executable binary and dependencies. Returns a pid of -1 on failure.
+        Spawns a process with the given executable binary and dependencies. Returns a pid of -1 on failure.
 
         The executable may be a valid elf file, as can the dependencies. All data will be copied over to a new set of pages.
 

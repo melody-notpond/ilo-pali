@@ -47,7 +47,7 @@ void kinit(uint64_t hartid, void* fdt) {
     set_mmu(top);
 
     console_printf("initrd start: %p\ninitrd end: %p\n", initrd_start, initrd_end);
-    mark_as_used(initrd_start, (intptr_t) (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
+    mark_as_used(initrd_start, (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     if (fat.fat == NULL) {
@@ -66,7 +66,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    spawn_process_from_elf(0, &elf, 2);
+    spawn_process_from_elf(0, &elf, 2, NULL, 0);
     dealloc_pages(data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
@@ -76,6 +76,10 @@ void kinit(uint64_t hartid, void* fdt) {
     for (page_t* p = (page_t*) devicetree.header; p < (page_t*) ((void*) devicetree.header + be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1); p++) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
+
+    process_t* initd = get_process(0);
+    initd->xs[REGISTER_A0] = (uint64_t) initrd_start;
+    initd->xs[REGISTER_A1] = (size_t) initrd_end - (size_t) initrd_start;
 
     uint64_t sstatus;
     asm volatile("csrr %0, sstatus" : "=r" (sstatus));

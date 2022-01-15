@@ -39,9 +39,9 @@ typedef struct {
 // Initialises process related stuff.
 void init_processes();
 
-// spawn_process_from_elf(pid_t, elf_t*, size_t) -> pid_t
+// spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
 // Spawns a process using the given elf file and parent pid. Returns -1 on failure.
-pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size);
+pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
 
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.

@@ -18,13 +18,14 @@ clean:
 	-rm -r build/
 
 kernel: build
-	$(MAKE) -C kernel/ CC=$(CC)
+	$(MAKE) -C kernel/
 
 run:
 	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
 
 boot: boot_dir
-	$(MAKE) -C boot/initd CC=$(CC)
+	$(MAKE) -C boot/initd
+	$(MAKE) -C boot/test
 
 boot_dir: build
 	mkdir -p build/boot

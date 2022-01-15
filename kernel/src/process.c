@@ -17,9 +17,9 @@ void init_processes() {
     processes = alloc_pages(processes_list_page_count);
 }
 
-// spawn_process_from_elf(pid_t, elf_t*, size_t) -> pid_t
+// spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
 // Spawns a process using the given elf file and parent pid. Returns -1 on failure.
-pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
+pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
     if (elf->header->type != ELF_EXECUTABLE) {
         console_puts("ELF file is not executable\n");
         return -1;
@@ -85,6 +85,17 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
     processes[pid].xs[REGISTER_SP] = (uint64_t) processes[pid].last_virtual_page - 8;
     processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
     processes[pid].last_virtual_page += PAGE_SIZE;
+
+    if (args != NULL && arg_size != 0) {
+        for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1); i += PAGE_SIZE) {
+            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            memcpy(physical, args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
+        }
+
+        processes[pid].xs[REGISTER_A0] = (uint64_t) processes[pid].last_virtual_page;
+        processes[pid].xs[REGISTER_A1] = arg_size;
+        processes[pid].last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+    }
 
     process_t* parent = get_process(parent_pid);
     if (parent != NULL)

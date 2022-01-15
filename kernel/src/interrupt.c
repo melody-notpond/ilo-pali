@@ -11,7 +11,7 @@ void timer_switch(trap_t* trap) {
     pid_t next_pid = get_next_waiting_process(trap->pid);
     switch_to_process(trap, next_pid);
     time_t next = get_time();
-    next.nanos += 10000;
+    next.micros += 10;
     set_next_time_interrupt(next);
 }
 
@@ -238,21 +238,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // sleep(size_t seconds, size_t nanos) -> time_t current
+                    // sleep(size_t seconds, size_t micros) -> time_t current
                     // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
                     case 7: {
                         uint64_t seconds = trap->xs[REGISTER_A1];
-                        uint64_t nanos = trap->xs[REGISTER_A2];
+                        uint64_t micros = trap->xs[REGISTER_A2];
 
                         time_t now = get_time();
-                        if (seconds == 0 && nanos == 0) {
+                        if (seconds == 0 && micros == 0) {
                             trap->xs[REGISTER_A0] = now.seconds;
-                            trap->xs[REGISTER_A1] = now.nanos;
+                            trap->xs[REGISTER_A1] = now.micros;
                             break;
                         }
 
                         now.seconds += seconds;
-                        now.nanos += nanos;
+                        now.micros += micros;
 
                         process_t* process = get_process(trap->pid);
                         process->wake_on_time = now;

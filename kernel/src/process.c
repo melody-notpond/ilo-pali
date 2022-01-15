@@ -141,9 +141,9 @@ pid_t get_next_waiting_process(pid_t pid) {
             else if (processes[p].state == PROCESS_STATE_BLOCK_SLEEP) {
                 time_t wait = processes[p].wake_on_time;
                 time_t now = get_time();
-                if ((wait.seconds == now.seconds && wait.nanos <= now.seconds) || (wait.seconds < now.seconds)) {
+                if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
                     processes[p].xs[REGISTER_A0] = now.seconds;
-                    processes[p].xs[REGISTER_A1] = now.nanos;
+                    processes[p].xs[REGISTER_A1] = now.micros;
                     return p;
                 }
             }
@@ -154,9 +154,9 @@ pid_t get_next_waiting_process(pid_t pid) {
         else if (processes[pid].state == PROCESS_STATE_BLOCK_SLEEP) {
             time_t wait = processes[pid].wake_on_time;
             time_t now = get_time();
-            if ((wait.seconds == now.seconds && wait.nanos <= now.seconds) || (wait.seconds < now.seconds)) {
+            if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
                 processes[pid].xs[REGISTER_A0] = now.seconds;
-                processes[pid].xs[REGISTER_A1] = now.nanos;
+                processes[pid].xs[REGISTER_A1] = now.micros;
                 return pid;
             }
         }

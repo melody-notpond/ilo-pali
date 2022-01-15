@@ -15,6 +15,10 @@ pid_t current_pid = 0;
 void init_processes() {
     processes_list_page_count = (MAX_PID * sizeof(process_t) + PAGE_SIZE - 1) / PAGE_SIZE;
     processes = alloc_pages(processes_list_page_count);
+    mmu_level_1_t* top = get_mmu();
+    for (size_t i = 0; i < processes_list_page_count; i++) {
+        mmu_change_flags(top, (void*) processes + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
+    }
 }
 
 // spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
@@ -48,7 +52,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
         identity_map_kernel(top, NULL, NULL, NULL);
         for (size_t i = 0; i < processes_list_page_count; i++) {
             void* p = (void*) processes + i * PAGE_SIZE;
-            mmu_map(top, p, p, MMU_BIT_READ | MMU_BIT_WRITE);
+            mmu_map(top, p, p, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
         }
     }
 
@@ -106,6 +110,10 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].mmu_data = top;
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
+
+    if (top != get_mmu()) {
+        remove_mmu_from_mmu(get_mmu(), processes[pid].mmu_data);
+    }
     return pid;
 }
 
@@ -180,4 +188,15 @@ process_t* get_process(pid_t pid) {
     if (processes[pid].state == PROCESS_STATE_DEAD)
         return NULL;
     return &processes[pid];
+}
+
+// kill_process(pid_t) -> void
+// Kills a process.
+void kill_process(pid_t pid) {
+    if (processes[pid].state == PROCESS_STATE_DEAD)
+        return;
+
+    set_mmu(processes[0].mmu_data);
+    clean_mmu_table(processes[pid].mmu_data);
+    processes[pid].state = PROCESS_STATE_DEAD;
 }

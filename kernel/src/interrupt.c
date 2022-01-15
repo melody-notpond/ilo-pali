@@ -283,6 +283,31 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+
+                    // kill(pid_t pid) -> int status
+                    // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
+                    case 9: {
+                        pid_t pid = trap->xs[REGISTER_A1];
+
+                        process_t* current = get_process(trap->pid);
+                        process_t* victim = get_process(pid);
+
+                        if (victim == NULL) {
+                            trap->xs[REGISTER_A0] = 1;
+                            break;
+                        }
+
+                        if (current->user != 0 || victim->user != current->user) {
+                            trap->xs[REGISTER_A0] = 2;
+                            break;
+                        }
+
+                        kill_process(pid);
+
+                        trap->xs[REGISTER_A0] = 0;
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                 }

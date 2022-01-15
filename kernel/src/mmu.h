@@ -68,6 +68,10 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
 // Removes unused entries from an mmu table.
 void remove_unused_entries(mmu_level_1_t* top);
 
+// remove_mmu_from_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
+// Removes an mmu table from an mmu table. (mmu-ception moment)
+void remove_mmu_from_mmu(mmu_level_1_t* top, mmu_level_1_t* entry);
+
 // clean_mmu_table(mmu_level_1_t*) -> void
 // Cleans up an mmu table.
 void clean_mmu_table(mmu_level_1_t* top);

@@ -55,4 +55,8 @@ pid_t get_next_waiting_process(pid_t pid);
 // Gets the process associated with the pid.
 process_t* get_process(pid_t pid);
 
+// kill_process(pid_t) -> void
+// Kills a process.
+void kill_process(pid_t pid);
+
 #endif /* PROCESS_H */

@@ -36,4 +36,6 @@ time_t sleep(uint64_t seconds, uint64_t nanos);
 
 uint64_t spawn_process(void* exe, size_t exe_size, void* args, size_t arg_size);
 
+uint64_t kill(uint64_t pid);
+
 #endif /* SYSCALL_H */

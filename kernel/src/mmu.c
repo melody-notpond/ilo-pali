@@ -223,12 +223,12 @@ void remove_unused_entries(mmu_level_1_t* top) {
         if (level2) {
             bool level2_used = false;
             for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                mmu_level_2_t* level3 = MMU_UNWRAP(2, level2[i]);
+                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
 
                 if (level3) {
                     bool level3_used = false;
                     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                        mmu_level_2_t* level4 = MMU_UNWRAP(2, level3[i]);
+                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
                         if (level4) {
                             level3_used = true;
                             level2_used = true;
@@ -247,26 +247,64 @@ void remove_unused_entries(mmu_level_1_t* top) {
     }
 }
 
+// remove_mmu_from_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
+// Removes an mmu table from an mmu table. (mmu-ception moment)
+void remove_mmu_from_mmu(mmu_level_1_t* top, mmu_level_1_t* entry) {
+    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+        mmu_level_2_t* level2 = MMU_UNWRAP(2, entry[i]);
+        if (level2) {
+            for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
+                if (level3) {
+                    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
+                        if (level4 && (level3[i] & MMU_BIT_GLOBAL) == 0)
+                            mmu_remove(top, level4);
+                    }
+
+                    mmu_remove(top, level3);
+                }
+            }
+
+            mmu_remove(top, level2);
+        }
+    }
+
+    mmu_remove(top, entry);
+    remove_unused_entries(top);
+}
+
 // clean_mmu_table(mmu_level_1_t*) -> void
 // Cleans up an mmu table.
 void clean_mmu_table(mmu_level_1_t* top) {
+    mmu_level_1_t* current = get_mmu();
+    mmu_map(current, top, top, MMU_BIT_READ | MMU_BIT_WRITE);
+
     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
         mmu_level_2_t* level2 = MMU_UNWRAP(2, top[i]);
+        mmu_map(current, level2, level2, MMU_BIT_READ | MMU_BIT_WRITE);
         if (level2) {
             for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                mmu_level_2_t* level3 = MMU_UNWRAP(2, level2[i]);
+                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
+                mmu_map(current, level3, level3, MMU_BIT_READ | MMU_BIT_WRITE);
                 if (level3) {
                     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                        mmu_level_2_t* level4 = MMU_UNWRAP(2, level3[i]);
+                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
                         if (level4)
                             dealloc_pages(level4, 1);
                     }
 
+                    mmu_remove(current, level3);
                     dealloc_pages(level3, 1);
                 }
             }
 
+            mmu_remove(current, level2);
             dealloc_pages(level2, 1);
         }
     }
+
+    mmu_remove(current, top);
+    dealloc_pages(top, 1);
+    remove_unused_entries(current);
 }

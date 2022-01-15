@@ -15,7 +15,11 @@ void _start(void* initrd, size_t size) {
     size_t test_size;
     void* test = read_file_full(&fat, "test", &test_size);
 
-    spawn_process(test, test_size, "uwu?\n", 5);
+    uint64_t pid = spawn_process(test, test_size, "uwu?\n", 5);
+
+    sleep(8, 0);
+
+    kill(pid);
 
     while (1) {
         uart_write("a\n", 2);

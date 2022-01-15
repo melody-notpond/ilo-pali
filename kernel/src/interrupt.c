@@ -5,6 +5,15 @@
 #include "memory.h"
 #include "process.h"
 #include "opensbi.h"
+#include "time.h"
+
+void timer_switch(trap_t* trap) {
+    pid_t next_pid = get_next_waiting_process(trap->pid);
+    switch_to_process(trap, next_pid);
+    time_t next = get_time();
+    next.nanos += 10000;
+    set_next_time_interrupt(next);
+}
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
     //console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
@@ -19,11 +28,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Timer interrupt
             case 5: {
-                pid_t next_pid = get_next_waiting_process(trap->pid);
-                switch_to_process(trap, next_pid);
-                uint64_t time = 0;
-                asm volatile("csrr %0, time" : "=r" (time));
-                sbi_set_timer(time + 10000);
+                timer_switch(trap);
                 break;
             }
 
@@ -230,6 +235,30 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             process->user = uid;
                             trap->xs[REGISTER_A0] = 0;
                         } else trap->xs[REGISTER_A0] = 1;
+                        break;
+                    }
+
+                    // sleep(size_t seconds, size_t nanos) -> time_t current
+                    // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
+                    case 7: {
+                        uint64_t seconds = trap->xs[REGISTER_A1];
+                        uint64_t nanos = trap->xs[REGISTER_A2];
+
+                        time_t now = get_time();
+                        if (seconds == 0 && nanos == 0) {
+                            trap->xs[REGISTER_A0] = now.seconds;
+                            trap->xs[REGISTER_A1] = now.nanos;
+                            break;
+                        }
+
+                        now.seconds += seconds;
+                        now.nanos += nanos;
+
+                        process_t* process = get_process(trap->pid);
+                        process->wake_on_time = now;
+                        process->state = PROCESS_STATE_BLOCK_SLEEP;
+
+                        timer_switch(trap);
                         break;
                     }
 

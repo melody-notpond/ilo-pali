@@ -6,6 +6,7 @@
 #include "elf.h"
 #include "interrupt.h"
 #include "mmu.h"
+#include "time.h"
 
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
@@ -25,6 +26,7 @@ typedef struct {
 
     process_state_t state;
     mmu_level_1_t* mmu_data;
+    time_t wake_on_time;
 
     void* last_virtual_page;
 

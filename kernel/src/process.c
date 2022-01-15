@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #include "console.h"
 #include "memory.h"
 #include "process.h"
@@ -5,7 +7,7 @@
 process_t* processes;
 size_t processes_list_page_count;
 
-pid_t MAX_PID = 1000;
+pid_t MAX_PID = 10;
 pid_t current_pid = 0;
 
 // init_processes() -> void
@@ -99,8 +101,9 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size) {
 // switch_to_process(trap_t*, pid_t) -> void
 // Jumps to the given process.
 void switch_to_process(trap_t* trap, pid_t pid) {
-    if (processes[trap->pid].state == PROCESS_STATE_RUNNING) {
-        processes[trap->pid].state = PROCESS_STATE_WAIT;
+    if (processes[trap->pid].state != PROCESS_STATE_DEAD && processes[trap->pid].state != PROCESS_STATE_WAIT) {
+        if (processes[trap->pid].state == PROCESS_STATE_RUNNING)
+            processes[trap->pid].state = PROCESS_STATE_WAIT;
         processes[trap->pid].pc = trap->pc;
 
         for (int i = 0; i < 32; i++) {
@@ -131,12 +134,33 @@ void switch_to_process(trap_t* trap, pid_t pid) {
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns the given pid if not found.
 pid_t get_next_waiting_process(pid_t pid) {
-    for (pid_t p = pid + 1; p != pid; p = (p + 1 < MAX_PID ? p + 1 : 0)) {
-        if (processes[p].state == PROCESS_STATE_WAIT)
-            return p;
-    }
+    while (true) {
+        for (pid_t p = pid + 1; p != pid; p = (p + 1 < MAX_PID ? p + 1 : 0)) {
+            if (processes[p].state == PROCESS_STATE_WAIT)
+                return p;
+            else if (processes[p].state == PROCESS_STATE_BLOCK_SLEEP) {
+                time_t wait = processes[p].wake_on_time;
+                time_t now = get_time();
+                if ((wait.seconds == now.seconds && wait.nanos <= now.seconds) || (wait.seconds < now.seconds)) {
+                    processes[p].xs[REGISTER_A0] = now.seconds;
+                    processes[p].xs[REGISTER_A1] = now.nanos;
+                    return p;
+                }
+            }
+        }
 
-    return pid;
+        if (processes[pid].state == PROCESS_STATE_RUNNING)
+            return pid;
+        else if (processes[pid].state == PROCESS_STATE_BLOCK_SLEEP) {
+            time_t wait = processes[pid].wake_on_time;
+            time_t now = get_time();
+            if ((wait.seconds == now.seconds && wait.nanos <= now.seconds) || (wait.seconds < now.seconds)) {
+                processes[pid].xs[REGISTER_A0] = now.seconds;
+                processes[pid].xs[REGISTER_A1] = now.nanos;
+                return pid;
+            }
+        }
+    }
 }
 
 // get_process(pid_t) -> process_t*

@@ -8,15 +8,28 @@ void uart_write(char* s, size_t length) {
 
 // alloc_page(void* addr, size_t count, int permissions) -> void* addr
 void* alloc_page(void* addr, size_t count, int permissions) {
-    return (void*) syscall(1, (uint64_t) addr, count, permissions, 0, 0, 0);
+    return (void*) syscall(1, (uint64_t) addr, count, permissions, 0, 0, 0).first;
 }
 
 int page_permissions(void* addr, size_t count, int permissions) {
-    return syscall(2, (uint64_t) addr, count, permissions, 0, 0, 0);
+    return syscall(2, (uint64_t) addr, count, permissions, 0, 0, 0).first;
 }
 
 int dealloc_page(void* addr, size_t count) {
-    return syscall(3, (uint64_t) addr, count, 0, 0, 0, 0);
+    return syscall(3, (uint64_t) addr, count, 0, 0, 0, 0).first;
+}
+
+typedef struct {
+    uint64_t seconds;
+    uint64_t nanos;
+} time_t;
+
+time_t sleep(uint64_t seconds, uint64_t nanos) {
+    dual_t dual = syscall(7, seconds, nanos, 0, 0, 0, 0);
+    return (time_t) {
+        .seconds = dual.first,
+        .nanos = dual.second,
+    };
 }
 
 void _start() {
@@ -32,6 +45,8 @@ void _start() {
     }
 
     dealloc_page((void*) p, 2);
-    uart_write("a\n", 2);
-    while(1);
+    while (1) {
+        uart_write("a\n", 2);
+        sleep(1, 0);
+    }
 }

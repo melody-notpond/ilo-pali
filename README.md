@@ -111,9 +111,9 @@ ilo pali microkernel features:
 
         Sets the uid of the given process (can only be done by processes with uid = 0). Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
 
-    - `sleep(size_t seconds, size_t nanos) -> int status`
+    - `sleep(size_t seconds, size_t nanos) -> time_t current`
 
-        Sleeps for the given amount of time. Returns 0 on success and 1 on failure. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
+        Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
 
 ## Resources
  - [OpenSBI docs](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc)

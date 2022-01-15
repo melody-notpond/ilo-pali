@@ -31,6 +31,7 @@ void kinit(uint64_t hartid, void* fdt) {
 
     dump_fdt(&devicetree, NULL);
 
+    init_time(&devicetree);
     init_pages(&devicetree);
     mark_as_used(&devicetree, (be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1) / PAGE_SIZE);
 

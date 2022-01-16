@@ -98,7 +98,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
 
         processes[pid].xs[REGISTER_A0] = (uint64_t) processes[pid].last_virtual_page;
         processes[pid].xs[REGISTER_A1] = arg_size;
-        processes[pid].last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+        processes[pid].last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE + PAGE_SIZE;
     }
 
     process_t* parent = get_process(parent_pid);

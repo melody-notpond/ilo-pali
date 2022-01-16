@@ -349,14 +349,12 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 process_t* process = get_process(pid);
                                 mmu_level_1_t* current = get_mmu();
                                 for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
-                                    intptr_t entry = mmu_walk(current, (void*) data + PAGE_SIZE * i);
-                                    void* physical = MMU_UNWRAP(4, entry);
-                                    incr_page_ref_count(physical, 1);
-                                    mmu_map(process->mmu_data, process->last_virtual_page + i * PAGE_SIZE, physical, entry & 0x3ff);
+                                    intptr_t entry = mmu_walk(current, (void*) data + i * PAGE_SIZE);
+                                    if ((entry & MMU_BIT_USER) == 0) {
+                                        trap->xs[REGISTER_A0] = 2;
+                                        return trap;
+                                    }
                                 }
-
-                                data = (uint64_t) process->last_virtual_page;
-                                process->last_virtual_page += (meta + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
                                 break;
                             }
 
@@ -418,8 +416,34 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             trap->xs[REGISTER_A0] = 0;
 
                             if (message.type == 3)
-                                mmu_map(get_mmu(), (void*) *data, (void*) *data, MMU_BIT_READ | MMU_BIT_WRITE);
-                            else if (message.type != 0 && message.type != 1 && message.type != 2)
+                                mmu_map(get_mmu(), (void*) message.data, (void*) message.data, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+                            else if (message.type == 2) {
+                                process_t* process = get_process(trap->pid);
+                                process_t* sender = get_process(message.source);
+
+                                if (sender == NULL) {
+                                    trap->pc -= 4;
+                                    timer_switch(trap);
+                                    return trap;
+                                }
+
+                                mmu_level_1_t* current = get_mmu();
+                                mmu_map_mmu(current, sender->mmu_data);
+                                for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
+                                    void* virtual = (void*) message.data - message.data % PAGE_SIZE + i * PAGE_SIZE;
+                                    intptr_t entry = mmu_walk(sender->mmu_data, virtual);
+                                    if (entry & MMU_BIT_USER) {
+                                        void* physical = MMU_UNWRAP(4, entry);
+                                        incr_page_ref_count(physical, 1);
+                                        mmu_map(current, process->last_virtual_page + i * PAGE_SIZE, physical, (entry & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
+                                    }
+                                }
+
+                                if (data != NULL)
+                                    *data = (uint64_t) process->last_virtual_page + message.data % PAGE_SIZE;
+                                remove_mmu_from_mmu(current, sender->mmu_data);
+                                process->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                            } else if (message.type != 0 && message.type != 1)
                                 console_printf("[interrupt_handler] warning: unknown message type 0x%x\n", *type);
                         } else if (block) {
                             trap->pc -= 4;

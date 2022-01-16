@@ -46,15 +46,22 @@ void mmu_map(mmu_level_1_t* top, void* virtual, void* physical, int flags) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+    bool diff = get_mmu() != NULL && top != get_mmu();
 
     if (!MMU_UNWRAP(2, top[vpn2])) {
-        top[vpn2] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+        void* page = alloc_pages(1);
+        top[vpn2] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
+        if (diff)
+            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
 
     if (!MMU_UNWRAP(3, level2[vpn1])) {
-        level2[vpn1] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+        void* page = alloc_pages(1);
+        level2[vpn1] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
+        if (diff)
+            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
@@ -70,15 +77,22 @@ void* mmu_alloc(mmu_level_1_t* top, void* virtual, int flags) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+    bool diff = top != get_mmu();
 
     if (!MMU_UNWRAP(2, top[vpn2])) {
-        top[vpn2] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+        void* page = alloc_pages(1);
+        top[vpn2] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
+        if (diff)
+            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
 
     if (!MMU_UNWRAP(3, level2[vpn1])) {
-        level2[vpn1] = ((intptr_t) alloc_pages(1)) >> 2 | MMU_BIT_VALID;
+        void* page = alloc_pages(1);
+        level2[vpn1] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
+        if (diff)
+            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
@@ -241,6 +255,29 @@ void remove_unused_entries(mmu_level_1_t* top) {
 
             if (!level2_used)
                 dealloc_pages(level2, 1);
+        }
+    }
+}
+
+// mmu_map_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
+// Maps an mmu into an mmu. (more mmu-ception :florshed:)
+void mmu_map_mmu(mmu_level_1_t* top, mmu_level_1_t* entry) {
+    mmu_map(top, entry, entry, MMU_BIT_READ | MMU_BIT_WRITE);
+    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+        mmu_level_2_t* level2 = MMU_UNWRAP(2, entry[i]);
+        if (level2) {
+            mmu_map(top, level2, level2, MMU_BIT_READ | MMU_BIT_WRITE);
+            for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
+                if (level3) {
+                    mmu_map(top, level3, level3, MMU_BIT_READ | MMU_BIT_WRITE);
+                    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
+                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
+                        if (level4)
+                            mmu_map(top, level4, level4, MMU_BIT_READ | MMU_BIT_WRITE);
+                    }
+                }
+            }
         }
     }
 }

@@ -2,8 +2,6 @@
 #include "mmu.h"
 #include <stdbool.h>
 
-#define MMU_UNWRAP(t, v) ((mmu_level_##t##_t*) (((v) << 2) & ~0xfff))
-
 // get_mmu() -> mmu_level_1_t*
 // Gets the current value of satp and converts it into a pointer to the mmu table.
 mmu_level_1_t* get_mmu() {

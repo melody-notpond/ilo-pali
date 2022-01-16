@@ -7,7 +7,7 @@
 process_t* processes;
 size_t processes_list_page_count;
 
-pid_t MAX_PID = 10;
+pid_t MAX_PID = 1024;
 pid_t current_pid = 0;
 
 // init_processes() -> void
@@ -111,8 +111,17 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
 
+    processes[pid].message_queue = alloc_pages(1);
+    mmu_map(top, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
+    processes[pid].message_queue_start = 0;
+    processes[pid].message_queue_end = 0;
+    processes[pid].message_queue_len = 0;
+    processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
+
     if (top != get_mmu()) {
-        remove_mmu_from_mmu(get_mmu(), processes[pid].mmu_data);
+        mmu_level_1_t* current = get_mmu();
+        remove_mmu_from_mmu(current, processes[pid].mmu_data);
+        mmu_remove(current, processes[pid].message_queue);
     }
     return pid;
 }
@@ -199,4 +208,40 @@ void kill_process(pid_t pid) {
     set_mmu(processes[0].mmu_data);
     clean_mmu_table(processes[pid].mmu_data);
     processes[pid].state = PROCESS_STATE_DEAD;
+}
+
+// enqueue_message_to_process(pid_t, process_message_t) -> bool
+// Enqueues a message to a process's message queue. Returns true if successful and false if the process was not found or if the queue is full.
+bool enqueue_message_to_process(pid_t recipient, process_message_t message) {
+    process_t* process = get_process(recipient);
+    if (process == NULL || process->message_queue_len >= process->message_queue_cap)
+        return false;
+
+    mmu_level_1_t* current = get_mmu();
+    if (current != process->mmu_data)
+        mmu_map(current, process->message_queue, process->message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
+
+    process->message_queue[process->message_queue_end] = message;
+    process->message_queue_end++;
+    if (process->message_queue_end >= process->message_queue_cap)
+        process->message_queue_end = 0;
+    process->message_queue_len++;
+    if (current != process->mmu_data)
+        mmu_remove(current, process->message_queue);
+    return true;
+}
+
+// dequeue_message_from_process(pid_t, process_message_t) -> bool
+// Dequeues a message from a process's message queue. Returns true if successful and false if the process was not found or if the queue is empty.
+bool dequeue_message_from_process(pid_t pid, process_message_t* message) {
+    process_t* process = get_process(pid);
+    if (process == NULL || process->message_queue_len == 0)
+        return false;
+
+    *message = process->message_queue[process->message_queue_start];
+    process->message_queue_start++;
+    if (process->message_queue_start >= process->message_queue_cap)
+        process->message_queue_start = 0;
+    process->message_queue_len--;
+    return true;
 }

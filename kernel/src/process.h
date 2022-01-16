@@ -1,6 +1,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #include "elf.h"
@@ -10,6 +11,13 @@
 
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
+
+typedef struct {
+    pid_t source;
+    uint64_t type;
+    uint64_t data;
+    uint64_t metadata;
+} process_message_t;
 
 typedef enum {
     PROCESS_STATE_DEAD = 0,
@@ -33,6 +41,12 @@ typedef struct {
     uint64_t pc;
     uint64_t xs[32];
     double fs[32];
+
+    process_message_t* message_queue;
+    size_t message_queue_start;
+    size_t message_queue_end;
+    size_t message_queue_len;
+    size_t message_queue_cap;
 } process_t;
 
 // init_processes() -> void
@@ -58,5 +72,13 @@ process_t* get_process(pid_t pid);
 // kill_process(pid_t) -> void
 // Kills a process.
 void kill_process(pid_t pid);
+
+// enqueue_message_to_process(pid_t, process_message_t) -> bool
+// Enqueues a message to a process's message queue. Returns true if successful and false if the process was not found or if the queue is full.
+bool enqueue_message_to_process(pid_t recipient, process_message_t message);
+
+// dequeue_message_from_process(pid_t, process_message_t) -> bool
+// Dequeues a message from a process's message queue. Returns true if successful and false if the process was not found or if the queue is empty.
+bool dequeue_message_from_process(pid_t pid, process_message_t* message);
 
 #endif /* PROCESS_H */

@@ -297,7 +297,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        if (current->user != 0 || victim->user != current->user) {
+                        if (pid == 0 || (current->user != 0 && victim->user != current->user)) {
                             trap->xs[REGISTER_A0] = 2;
                             break;
                         }
@@ -305,6 +305,126 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         kill_process(pid);
 
                         trap->xs[REGISTER_A0] = 0;
+                        break;
+                    }
+
+                    // send(bool block, pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status
+                    // Sends data to the given process. Returns 0 on success, 1 if process does not exist, 2 if invalid arguments, and 3 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
+                    // Types:
+                    // - SIGNAL  - 0
+                    //      Metadata can be any integer argument for the signal (for example, the size of the requested data).
+                    // - INT     - 1
+                    //      Metadata can be set to send a 128 bit integer.
+                    // - POINTER - 2
+                    //      Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
+                    // - DATA - 3
+                    //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
+                    case 10: {
+                        bool block = trap->xs[REGISTER_A1];
+                        pid_t pid = trap->xs[REGISTER_A2];
+                        int type = trap->xs[REGISTER_A3];
+                        uint64_t data = trap->xs[REGISTER_A4];
+                        uint64_t meta = trap->xs[REGISTER_A5];
+
+                        if (get_process(pid) == NULL) {
+                            trap->xs[REGISTER_A0] = 1;
+                            break;
+                        }
+
+                        switch (type) {
+                            // Signals
+                            case 0:
+
+                            // Integers
+                            case 1:
+                                break;
+
+                            // Pointers
+                            case 2: {
+                                if (meta == 0) {
+                                    trap->xs[REGISTER_A0] = 2;
+                                    return trap;
+                                }
+
+                                process_t* process = get_process(pid);
+                                mmu_level_1_t* current = get_mmu();
+                                for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
+                                    intptr_t entry = mmu_walk(current, (void*) data + PAGE_SIZE * i);
+                                    void* physical = MMU_UNWRAP(4, entry);
+                                    incr_page_ref_count(physical, 1);
+                                    mmu_map(process->mmu_data, process->last_virtual_page + i * PAGE_SIZE, physical, entry & 0x3ff);
+                                }
+
+                                data = (uint64_t) process->last_virtual_page;
+                                process->last_virtual_page += (meta + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                                break;
+                            }
+
+                            // Data
+                            case 3: {
+                                if (meta > PAGE_SIZE || meta == 0) {
+                                    trap->xs[REGISTER_A0] = 2;
+                                    return trap;
+                                }
+
+                                void* copy = alloc_pages(1);
+                                memcpy(copy, (void*) data, meta);
+                                mmu_remove(get_mmu(), copy);
+                                data = (uint64_t) copy;
+                                break;
+                            }
+
+                            default:
+                                trap->xs[REGISTER_A0] = 2;
+                                return trap;
+                        }
+
+                        process_message_t message = {
+                            .source = trap->pid,
+                            .type = type,
+                            .data = data,
+                            .metadata = meta,
+                        };
+
+                        if (!enqueue_message_to_process(pid, message)) {
+                            if (block) {
+                                trap->pc -= 4;
+                                timer_switch(trap);
+                            } else trap->xs[REGISTER_A0] = 3;
+                        } else trap->xs[REGISTER_A0] = 0;
+
+                        break;
+                    }
+
+                    // recv(bool block, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
+                    // Blocks until a message is received and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not.
+                    case 11: {
+                        bool block = trap->xs[REGISTER_A1];
+                        pid_t* pid = (void*) trap->xs[REGISTER_A2];
+                        int* type = (void*) trap->xs[REGISTER_A3];
+                        uint64_t* data = (void*) trap->xs[REGISTER_A4];
+                        uint64_t* meta = (void*) trap->xs[REGISTER_A5];
+
+                        process_message_t message;
+                        if (dequeue_message_from_process(trap->pid, &message)) {
+                            if (pid != NULL)
+                                *pid = message.source;
+                            if (type != NULL)
+                                *type = message.type;
+                            if (data != NULL)
+                                *data = message.data;
+                            if (meta != NULL)
+                                *meta = message.metadata;
+                            trap->xs[REGISTER_A0] = 0;
+
+                            if (message.type == 3)
+                                mmu_map(get_mmu(), (void*) *data, (void*) *data, MMU_BIT_READ | MMU_BIT_WRITE);
+                            else if (message.type != 0 && message.type != 1 && message.type != 2)
+                                console_printf("[interrupt_handler] warning: unknown message type 0x%x\n", *type);
+                        } else if (block) {
+                            trap->pc -= 4;
+                            timer_switch(trap);
+                        } else trap->xs[REGISTER_A0] = 1;
                         break;
                     }
 

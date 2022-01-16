@@ -49,9 +49,9 @@ ilo pali microkernel features:
 
         Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
 
-    - `send(pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status`
+    - `send(bool block, pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status`
 
-        Sends data to the given process. Returns 0 on success, 1 if process does not exist, and 2 if invalid arguments.
+        Sends data to the given process. Returns 0 on success, 1 if process does not exist, and 2 if invalid arguments, and 3 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
 
         Types:
          - SIGNAL  - 0
@@ -66,9 +66,13 @@ ilo pali microkernel features:
 
             Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
 
-    - `set_recv_handler(int (*handler)(pid_t source, int type, uint64_t data, uint64_t metadata)) -> int status`
+        - DATA - 3
 
-        Sets the process's receive handler. Returns 0 on success, and 1 if the address is not in an allocated executable page. The receive handler may not interrupt interrupt handlers, but may interrupt all other process code.
+            Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
+
+    - `recv(bool block, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status`
+
+        Blocks until a message is received and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not.
 
     - `uart_write(size_t size, void* data) -> void`
 

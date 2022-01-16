@@ -6,6 +6,8 @@
 
 #include "fdt.h"
 
+#define MMU_UNWRAP(t, v) ((mmu_level_##t##_t*) (((v) << 2) & ~0xfff))
+
 #define MMU_BIT_VALID       0x01
 #define MMU_BIT_READ        0x02
 #define MMU_BIT_WRITE       0x04

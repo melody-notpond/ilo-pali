@@ -27,10 +27,9 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 while(1);
 
             // Timer interrupt
-            case 5: {
+            case 5:
                 timer_switch(trap);
                 break;
-            }
 
             // External interrupt
             case 9:
@@ -346,7 +345,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     return trap;
                                 }
 
-                                process_t* process = get_process(pid);
                                 mmu_level_1_t* current = get_mmu();
                                 for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     intptr_t entry = mmu_walk(current, (void*) data + i * PAGE_SIZE);

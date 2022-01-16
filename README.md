@@ -2,9 +2,9 @@
 An operating system for RISC V, featuring a small microkernel.
 
 ## Build instructions
-Install [the Newlib GNU RISC-V toolchain](https://github.com/riscv/riscv-gnu-toolchain#installation-newlib) and do `make` to build. Do `make run` to run. It should print out a bunch of debug information related to OpenSBI and then a single `a`.
+Install [the Newlib GNU RISC-V toolchain](https://github.com/riscv/riscv-gnu-toolchain#installation-newlib) and do `make` to build. Do `make idisc` to build the initrd disc. Do `make run` to run.
 
-Alternatively, you can install Clang and use `make CC=clang`.
+Alternatively, you can install Clang and use `make CC=clang` and `make idisc CC=clang`.
 
 ## Exiting QEMU
 This is the new "how to exit Vi" I guess. To exit, press <kbd>Ctrl</kbd>+<kbd>a</kbd>, unpress those keys, and then press <kbd>x</kbd>.

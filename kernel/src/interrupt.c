@@ -366,6 +366,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 void* copy = alloc_pages(1);
                                 memcpy(copy, (void*) data, meta);
                                 mmu_remove(get_mmu(), copy);
+                                mmu_map(get_process(pid)->mmu_data, copy, copy, MMU_BIT_READ | MMU_BIT_WRITE);
                                 data = (uint64_t) copy;
                                 break;
                             }

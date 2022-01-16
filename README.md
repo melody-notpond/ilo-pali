@@ -24,7 +24,7 @@ ilo pali microkernel features:
  - syscalls:
     - `alloc_page(void* addr, size_t count, int permissions) -> void* addr`
 
-        Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
+        Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Only the init process can pass in non-NULL arguments to addr. Returns NULL on failure. Write and execute cannot both be set at the same time.
 
     - `dealloc_page(void* addr, size_t count) -> int status`
 
@@ -77,14 +77,6 @@ ilo pali microkernel features:
     - `uart_write(size_t size, void* data) -> void`
 
         Writes data to the UART port.
-
-    - `interrupt_claim(uint64_t id, int (*handler)(uint64_t id)) -> int status`
-
-        Claims an interrupt to be handled by the given function by the current process. Returns 0 on success and 1 if interrupt was already claimed. The interrupt handler may interrupt any process code, including receive handlers.
-
-    - `interrupt_unclaim(uint64_t id) -> int status`
-
-        Unclaims an interrupt handled by the process. Returns 0 on success, 1 if the interrupt was already unclaimed, and 2 if the process does not claim the interrupt.
 
     - `spawn_thread(void (*func)(void*), void* data) -> pid_t thread`
 

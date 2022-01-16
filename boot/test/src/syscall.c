@@ -30,3 +30,7 @@ time_t sleep(uint64_t seconds, uint64_t nanos) {
 int recv(bool block, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata) {
     return syscall(11, block, (uint64_t) pid, (uint64_t) type, (uint64_t) data, (uint64_t) metadata, 0).first;
 }
+
+void lock(void* ref, int type, uint64_t value) {
+    syscall(12, (uint64_t) ref, type, value, 0, 0, 0);
+}

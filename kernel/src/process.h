@@ -35,6 +35,9 @@ typedef struct {
     process_state_t state;
     mmu_level_1_t* mmu_data;
     time_t wake_on_time;
+    void* lock_ref;
+    uint64_t lock_value;
+    int lock_type;
 
     void* last_virtual_page;
 

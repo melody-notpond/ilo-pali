@@ -1,6 +1,7 @@
 #ifndef INTERRUPT_H
 #define INTERRUPT_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define REGISTER_ZERO   0
@@ -47,6 +48,9 @@ typedef struct {
     double fs[32];
 } trap_t;
 
+// lock_stop(void*, int, uint64_t) -> bool
+// Returns true if the lock should stop blocking.
+bool lock_stop(void* ref, int type, uint64_t value);
 
 // jump_out_of_trap(trap_t*) -> void
 // Jumps out of a trap.

@@ -84,7 +84,7 @@ ilo pali microkernel features:
 
     - `lock(void* ref, int type, uint64_t value) -> int status`
 
-        Locks the current process until the given condition is true. Returns 0 on success and 1 on invalid arguments, and 2 on unknown error.
+        Locks the current process until the given condition is true. Returns 0 on success and 1 on invalid arguments.
 
         Types:
          - WAIT    - 0
@@ -94,6 +94,10 @@ ilo pali microkernel features:
          - WAKE    - 1
 
             Wakes when the pointer provided is the same as value.
+
+        - SIZE     - 0,2,4,6
+
+            Determines the size of the value.
 
     - `getpid() -> pid_t`
 

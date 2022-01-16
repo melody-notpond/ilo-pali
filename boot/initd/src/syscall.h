@@ -41,4 +41,6 @@ uint64_t kill(uint64_t pid);
 
 int send(bool block, uint64_t pid, int type, uint64_t data, uint64_t metadata);
 
+void lock(void* ref, int type, uint64_t value);
+
 #endif /* SYSCALL_H */

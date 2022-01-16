@@ -37,4 +37,6 @@ time_t sleep(uint64_t seconds, uint64_t nanos);
 
 int recv(bool block, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
 
+void lock(void* ref, int type, uint64_t value);
+
 #endif /* SYSCALL_H */

@@ -18,10 +18,9 @@ void _start(void* initrd, size_t size) {
     uint64_t pid = spawn_process(test, test_size, "uwu?\n", 5);
 
     sleep(1, 0);
-    send(true, pid, 2, (uint64_t) "nyaa\n", 5);
-
-    sleep(8, 0);
-
+    uint8_t waiting = 0;
+    send(true, pid, 2, (uint64_t) &waiting, 5);
+    lock(&waiting, 1, 4);
 
     while (1) {
         uart_write("a\n", 2);

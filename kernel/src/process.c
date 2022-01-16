@@ -174,6 +174,16 @@ pid_t get_next_waiting_process(pid_t pid) {
                     processes[p].xs[REGISTER_A1] = now.micros;
                     return p;
                 }
+            } else if (processes[p].state == PROCESS_STATE_BLOCK_LOCK) {
+                mmu_level_1_t* current = get_mmu();
+                if (current != processes[p].mmu_data)
+                    set_mmu(processes[p].mmu_data);
+                if (lock_stop(processes[p].lock_ref, processes[p].lock_type, processes[p].lock_value)) {
+                    processes[p].xs[REGISTER_A0] = 0;
+                    return p;
+                }
+                if (current != processes[p].mmu_data)
+                    set_mmu(current);
             }
         }
 
@@ -187,6 +197,9 @@ pid_t get_next_waiting_process(pid_t pid) {
                 processes[pid].xs[REGISTER_A1] = now.micros;
                 return pid;
             }
+        } else if (processes[pid].state == PROCESS_STATE_BLOCK_LOCK && lock_stop(processes[pid].lock_ref, processes[pid].lock_type, processes[pid].lock_value)) {
+            processes[pid].xs[REGISTER_A0] = 0;
+            return pid;
         }
     }
 }

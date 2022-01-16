@@ -36,3 +36,7 @@ uint64_t kill(uint64_t pid) {
 int send(bool block, uint64_t pid, int type, uint64_t data, uint64_t metadata) {
     return syscall(10, block, pid, type, data, metadata, 0).first;
 }
+
+void lock(void* ref, int type, uint64_t value) {
+    syscall(12, (uint64_t) ref, type, value, 0, 0, 0);
+}

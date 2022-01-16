@@ -40,3 +40,7 @@ int send(bool block, uint64_t pid, int type, uint64_t data, uint64_t metadata) {
 void lock(void* ref, int type, uint64_t value) {
     syscall(12, (uint64_t) ref, type, value, 0, 0, 0);
 }
+
+uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size) {
+    return syscall(13, (uint64_t) func, (uint64_t) args, arg_size, 0, 0, 0).first;
+}

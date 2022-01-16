@@ -128,13 +128,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (addr == NULL) {
                             process_t* process = get_process(trap->pid);
-                            addr = process->last_virtual_page;
+                            process_t* page_holder = process->thread_source != (uint64_t) -1 ? process : get_process(process->thread_source);
+                            addr = page_holder->last_virtual_page;
 
                             for (size_t i = 0; i < count; i++) {
-                                void* page = mmu_alloc(process->mmu_data, process->last_virtual_page, flags | MMU_BIT_USER);
+                                void* page = mmu_alloc(process->mmu_data, page_holder->last_virtual_page, flags | MMU_BIT_USER);
 
                                 if (!page) {
-                                    process->last_virtual_page -= PAGE_SIZE * i;
+                                    page_holder->last_virtual_page -= PAGE_SIZE * i;
                                     trap->xs[REGISTER_A0] = 0;
 
                                     for (size_t j = 0; j < i; j++) {
@@ -144,7 +145,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     return trap;
                                 }
 
-                                process->last_virtual_page += PAGE_SIZE;
+                                page_holder->last_virtual_page += PAGE_SIZE;
                             }
                             trap->xs[REGISTER_A0] = (uint64_t) addr;
                         } else if (trap->pid == 0) {
@@ -453,20 +454,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                                 mmu_level_1_t* current = get_mmu();
                                 mmu_map_mmu(current, sender->mmu_data);
+                                process_t* page_holder = process->thread_source != (uint64_t) -1 ? process : get_process(process->thread_source);
                                 for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     void* virtual = (void*) message.data - message.data % PAGE_SIZE + i * PAGE_SIZE;
                                     intptr_t entry = mmu_walk(sender->mmu_data, virtual);
                                     if (entry & MMU_BIT_USER) {
                                         void* physical = MMU_UNWRAP(4, entry);
                                         incr_page_ref_count(physical, 1);
-                                        mmu_map(current, process->last_virtual_page + i * PAGE_SIZE, physical, (entry & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
+                                        mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (entry & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
                                     }
                                 }
 
                                 if (data != NULL)
-                                    *data = (uint64_t) process->last_virtual_page + message.data % PAGE_SIZE;
+                                    *data = (uint64_t) page_holder->last_virtual_page + message.data % PAGE_SIZE;
                                 remove_mmu_from_mmu(current, sender->mmu_data);
-                                process->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                                page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
                             } else if (message.type != 0 && message.type != 1)
                                 console_printf("[interrupt_handler] warning: unknown message type 0x%x\n", *type);
                         } else if (block) {
@@ -501,6 +503,17 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             timer_switch(trap);
                         }
 
+                        break;
+                    }
+
+                    // spawn_thread(void (*func)(void*, size_t), void* data, size_t size) -> pid_t thread
+                    // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
+                    case 13: {
+                        void* func = (void*) trap->xs[REGISTER_A1];
+                        void* data = (void*) trap->xs[REGISTER_A2];
+                        size_t size = trap->xs[REGISTER_A3];
+                        pid_t pid = spawn_thread_from_func(trap->pid, func, 2, data, size);
+                        trap->xs[REGISTER_A0] = pid;
                         break;
                     }
 

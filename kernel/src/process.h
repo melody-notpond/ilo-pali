@@ -29,6 +29,7 @@ typedef enum {
 
 typedef struct {
     pid_t pid;
+    pid_t thread_source;
 
     uid_t user;
 
@@ -59,6 +60,10 @@ void init_processes();
 // spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
 // Spawns a process using the given elf file and parent pid. Returns -1 on failure.
 pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+
+// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> pid_t
+// Spawns a thread from the given process. Returns -1 on failure.
+pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
 
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.

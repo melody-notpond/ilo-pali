@@ -78,7 +78,7 @@ ilo pali microkernel features:
 
         Writes data to the UART port.
 
-    - `spawn_thread(void (*func)(void*), void* data) -> pid_t thread`
+    - `spawn_thread(void (*func)(void*, size_t), void* data, size_t size) -> pid_t thread`
 
         Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
 

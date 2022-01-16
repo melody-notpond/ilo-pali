@@ -107,6 +107,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     else
         processes[pid].user = 0;
     processes[pid].pid = pid;
+    processes[pid].thread_source = -1;
     processes[pid].mmu_data = top;
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
@@ -121,6 +122,65 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     if (top != get_mmu()) {
         mmu_level_1_t* current = get_mmu();
         remove_mmu_from_mmu(current, processes[pid].mmu_data);
+        mmu_remove(current, processes[pid].message_queue);
+    }
+    return pid;
+}
+
+// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> pid_t
+// Spawns a thread from the given process. Returns -1 on failure.
+pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size) {
+    process_t* parent = get_process(parent_pid);
+    if (parent == NULL)
+        return -1;
+    if (parent->thread_source != (uint64_t) -1)
+        parent = get_process(parent->thread_source);
+
+    pid_t pid = -1;
+    if (current_pid < MAX_PID) {
+        pid = current_pid++;
+    } else {
+        for (size_t i = 0; i < MAX_PID; i++) {
+            if (processes[i].state == PROCESS_STATE_DEAD) {
+                pid = i;
+                break;
+            }
+        }
+
+        if (pid == (uint64_t) -1)
+            return -1;
+    }
+
+    processes[pid].mmu_data = parent->mmu_data;
+    processes[pid].thread_source = parent_pid;
+    processes[pid].user = parent->user;
+
+    for (size_t i = 1; i <= stack_size; i++) {
+        mmu_alloc(parent->mmu_data, parent->last_virtual_page + PAGE_SIZE * i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    }
+    parent->last_virtual_page += PAGE_SIZE * (stack_size + 1);
+    processes[pid].xs[REGISTER_SP] = (uint64_t) parent->last_virtual_page - 8;
+    processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
+    parent->last_virtual_page += PAGE_SIZE;
+
+    processes[pid].xs[REGISTER_A0] = (uint64_t) args;
+    processes[pid].xs[REGISTER_A1] = arg_size;
+
+    processes[pid].pid = pid;
+    processes[pid].thread_source = -1;
+    processes[pid].pc = (uint64_t) func;
+    processes[pid].state = PROCESS_STATE_WAIT;
+
+    processes[pid].message_queue = alloc_pages(1);
+    mmu_map(parent->mmu_data, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
+    processes[pid].message_queue_start = 0;
+    processes[pid].message_queue_end = 0;
+    processes[pid].message_queue_len = 0;
+    processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
+
+    if (parent->mmu_data != get_mmu()) {
+        mmu_level_1_t* current = get_mmu();
+        remove_mmu_from_mmu(current, parent->mmu_data);
         mmu_remove(current, processes[pid].message_queue);
     }
     return pid;
@@ -164,6 +224,11 @@ void switch_to_process(trap_t* trap, pid_t pid) {
 pid_t get_next_waiting_process(pid_t pid) {
     while (true) {
         for (pid_t p = pid + 1; p != pid; p = (p + 1 < MAX_PID ? p + 1 : 0)) {
+            if (processes[p].thread_source != (uint64_t) -1 && processes[processes[p].thread_source].state == PROCESS_STATE_DEAD) {
+                kill_process(p);
+                continue;
+            }
+
             if (processes[p].state == PROCESS_STATE_WAIT)
                 return p;
             else if (processes[p].state == PROCESS_STATE_BLOCK_SLEEP) {
@@ -218,7 +283,9 @@ void kill_process(pid_t pid) {
     if (processes[pid].state == PROCESS_STATE_DEAD)
         return;
 
-    set_mmu(processes[0].mmu_data);
+    if (processes[pid].mmu_data == get_mmu())
+        set_mmu(processes[0].mmu_data);
+
     clean_mmu_table(processes[pid].mmu_data);
     processes[pid].state = PROCESS_STATE_DEAD;
 }

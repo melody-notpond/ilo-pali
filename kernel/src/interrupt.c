@@ -126,10 +126,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 process->last_virtual_page += PAGE_SIZE;
                             }
                             trap->xs[REGISTER_A0] = (uint64_t) addr;
-                        } else {
-                            // TODO
-                            trap->xs[REGISTER_A0] = 0;
-                        }
+                        } else if (trap->pid == 0) {
+                            if (addr < get_memory_start()) {
+                                process_t* process = get_process(trap->pid);
+                                mmu_map(process->mmu_data, process->last_virtual_page, addr, flags | MMU_BIT_USER);
+                                trap->xs[REGISTER_A0] = (uint64_t) process->last_virtual_page;
+                                process->last_virtual_page += PAGE_SIZE;
+                            } else trap->xs[REGISTER_A0] = 0;
+                        } else trap->xs[REGISTER_A0] = 0;
 
                         break;
                     }

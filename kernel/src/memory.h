@@ -14,6 +14,10 @@ typedef uint8_t page_t[PAGE_SIZE];
 // Initialises the pages to be ready for page allocation.
 void init_pages(fdt_t* tree);
 
+// get_memory_start() -> void*
+// Gets the start of RAM.
+void* get_memory_start();
+
 // mark_as_used(void*, size_t) -> void
 // Marks the given pages as used.
 void mark_as_used(void* page, size_t size);

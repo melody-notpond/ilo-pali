@@ -5,6 +5,7 @@
 #include "mmu.h"
 
 extern page_t pages_bottom;
+page_t* memory_start;
 page_t* heap_bottom;
 
 // init_pages(fdt_t*) -> void
@@ -26,8 +27,8 @@ void init_pages(fdt_t* tree) {
     struct fdt_property reg = fdt_get_property(tree, memory_node, "reg");
 
     // TODO: multiple memory segments
-    page_t* addr = (page_t*) be_to_le(32 * addr_cell, reg.data);
-    size_t len = be_to_le(32 * size_cell, reg.data + addr_cell * 4) - (&pages_bottom - addr);
+    memory_start = (page_t*) be_to_le(32 * addr_cell, reg.data);
+    size_t len = be_to_le(32 * size_cell, reg.data + addr_cell * 4) - (&pages_bottom - memory_start);
 
     size_t page_rc_count = len / PAGE_SIZE / PAGE_SIZE * 2;
     console_printf("[init_pages] page_rc_count: 0x%lx\n", page_rc_count);
@@ -37,6 +38,12 @@ void init_pages(fdt_t* tree) {
     for (uint64_t* clear = (uint64_t*) &pages_bottom; clear < (uint64_t*) heap_bottom; clear++) {
         *clear = 0;
     }
+}
+
+// get_memory_start() -> void*
+// Gets the start of RAM.
+void* get_memory_start() {
+    return memory_start;
 }
 
 // page_ref_count(page_t*) -> uint16_t*

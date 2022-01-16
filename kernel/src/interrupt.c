@@ -37,8 +37,6 @@ bool lock_stop(void* ref, int type, uint64_t value) {
 }
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
-    //console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
-
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
 
@@ -54,6 +52,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // External interrupt
             case 9:
+                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
                 while(1);
                 break;
 
@@ -86,6 +85,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Store access fault
             case 7:
+                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
                 while(1);
 
             // Environment call (ie, syscall)
@@ -520,6 +520,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Invalid or handled by machine mode
             default:
+                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
                 while(1);
         }
     }

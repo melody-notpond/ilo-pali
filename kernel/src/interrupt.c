@@ -93,6 +93,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 trap->pc += 4;
                 switch (trap->xs[REGISTER_A0]) {
                     // uart_write(char* data, size_t length) -> void
+                    // Writes to the uart port.
                     case 0: {
                         char* data = (void*) trap->xs[REGISTER_A1];
                         size_t length = trap->xs[REGISTER_A2];
@@ -106,7 +107,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     }
 
                     // alloc_page(void* addr, size_t count, int permissions) -> void* addr
-                    //
                     // Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
                     case 1: {
                         void* addr = (void*) trap->xs[REGISTER_A1];
@@ -514,6 +514,12 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t size = trap->xs[REGISTER_A3];
                         pid_t pid = spawn_thread_from_func(trap->pid, func, 2, data, size);
                         trap->xs[REGISTER_A0] = pid;
+                        break;
+                    }
+
+                    // claim_interrupt(int interrupt, void (*handler)(int interrupt)) -> int status
+                    // Claims or unclaims an interrupt. If the handler is NULL, the interrupt is unclaimed. Returns 0 on success and 1 if the action is not allowed (ie, interrupt was already claimed or is not owned by the process).
+                    case 14: {
                         break;
                     }
 

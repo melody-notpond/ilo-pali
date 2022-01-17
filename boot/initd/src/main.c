@@ -1,6 +1,6 @@
 #include <stddef.h>
 
-#include "syscall.h"
+#include "syscalls.h"
 #include "fat16.h"
 
 void thread(void* data, size_t size) {
@@ -31,7 +31,9 @@ void _start(void* initrd, size_t size) {
     lock(&waiting, 1, 4);
     */
 
-    spawn_thread(thread, "nya\n", 4);
+    uint64_t pid = spawn_thread(thread, "nya\n", 4);
+    sleep(1, 0);
+    kill(pid);
 
     while (1) {
         uart_write("a\n", 2);

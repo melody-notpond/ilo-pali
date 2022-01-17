@@ -10,7 +10,7 @@ ifdef WAIT_GDB
 	EFLAGS += -S
 endif
 
-.PHONY: all clean run gdb kernel boot build boot_dir
+.PHONY: all clean run gdb kernel boot build boot_dir lib lib_dir
 
 all: kernel boot
 
@@ -23,9 +23,17 @@ kernel: build
 run:
 	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
 
-boot: boot_dir
+boot: boot_dir lib
 	$(MAKE) -C boot/initd
 	$(MAKE) -C boot/test
+
+lib: lib_dir
+	$(MAKE) -C lib/std/alloc
+	$(MAKE) -C lib/std/iter/
+	$(MAKE) -C lib/std/syscall/
+
+lib_dir:
+	mkdir -p build/lib
 
 boot_dir: build
 	mkdir -p build/boot

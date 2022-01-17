@@ -2,7 +2,7 @@
 
 #include "fat16.h"
 #include "memory.h"
-#include "syscall.h"
+#include "syscalls.h"
 
 #define ATTR_READ_ONLY      0x01
 #define ATTR_HIDDEN         0x02

@@ -1,13 +1,14 @@
 TARGET = riscv64-unknown-elf
 CC     = $(TARGET)-gcc
-CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -fvisibility=hidden -nostdlib -g -Wall -Wextra
+CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -fvisibility=hidden -nostdlib -g -Wall -Wextra -L../../build/lib/ -I../../include/
 ifeq ($(CC),clang)
 	CFLAGS += -target $(TARGET) -mno-relax -Wno-unused-command-line-argument
 endif
 
+LIBS = -lsyscall
 CODE = src/
 
 .PHONY: all
 
-all: $(CODE)*.s $(CODE)*.c
-	$(CC) $(CFLAGS) $? -o ../../build/boot/test
+all: $(CODE)*.c
+	$(CC) $? $(CFLAGS) $(LIBS) -o ../../build/boot/test

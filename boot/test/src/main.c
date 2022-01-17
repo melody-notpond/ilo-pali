@@ -1,6 +1,6 @@
 #include <stddef.h>
 
-#include "syscall.h"
+#include "syscalls.h"
 
 void _start(char* msg, size_t size) {
     uart_write(msg, size);

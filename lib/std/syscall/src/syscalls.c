@@ -119,3 +119,12 @@ uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size) 
     return syscall(13, (uint64_t) func, (uint64_t) args, arg_size, 0, 0, 0).first;
 }
 
+// alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
+// Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.
+virtual_physical_pair_t alloc_pages_physical(size_t count, int permissions) {
+    dual_t dual = syscall(15, count, permissions, 0, 0, 0, 0);
+    return (virtual_physical_pair_t) {
+        .virtual_ = (void*) dual.first,
+        .physical = dual.second,
+    };
+}

@@ -1,8 +1,4 @@
-#include <stddef.h>
-
 #include "fdt.h"
-#include "console.h"
-#include "string.h"
 
 // be_to_le(uint64_t, void*) -> uint64_t
 // Converts a big endian number into a little endian number.
@@ -33,120 +29,9 @@ fdt_t verify_fdt(void* fdt) {
     return (fdt_t) { 0 };
 }
 
-// dump_fdt(fdt_t*, void*) -> void
-// Dumps an fdt to the UART.
-void dump_fdt(fdt_t* fdt, void* node) {
-    if (fdt->header == (void*) 0) {
-        console_puts("Invalid flat device tree\n");
-        return;
-    }
-
-    if (node == (void*) 0) {
-        console_printf(
-            "Header at %p:\n"
-            "    magic: 0x%lx\n"
-            "    total size: 0x%lx\n"
-            "    structure offset: 0x%lx\n"
-            "    strings offset: 0x%lx\n"
-            "    memory reserved map offset: 0x%lx\n"
-            "    version: 0x%lx\n"
-            "    last compatible version: 0x%lx\n"
-            "    boot cpu id: 0x%lx\n"
-            "    strings size: 0x%lx\n"
-            "    structure size: 0x%lx\n"
-            , fdt->header
-            , be_to_le(32, fdt->header->magic)
-            , be_to_le(32, fdt->header->totalsize)
-            , be_to_le(32, fdt->header->off_dt_struct)
-            , be_to_le(32, fdt->header->off_dt_strings)
-            , be_to_le(32, fdt->header->off_mem_rsvmap)
-            , be_to_le(32, fdt->header->version)
-            , be_to_le(32, fdt->header->last_comp_version)
-            , be_to_le(32, fdt->header->boot_cpuid_phys)
-            , be_to_le(32, fdt->header->size_dt_strings)
-            , be_to_le(32, fdt->header->size_dt_struct)
-        );
-
-        struct fdt_reserve_entry* entry = fdt->memory_reservation_block;
-        uint64_t addr = be_to_le(64, entry->address);
-        uint64_t size = be_to_le(64, entry->size);
-        console_puts("Memory reserved map:\n");
-        while (addr || size) {
-            console_printf("    reserved %lx-%lx (%lx bytes)\n", addr, addr + size, size);
-            entry++;
-            addr = be_to_le(64, entry->address);
-            size = be_to_le(64, entry->size);
-        }
-        console_puts("End of memory reserved map\nroot:\n");
-    }
-
-    void* ptr = node != (void*) 0 ? node : fdt->structure_block;
-    int indent = 0;
-    uint64_t current = be_to_le(32, ptr);
-    do {
-        switch ((fdt_node_type_t) current) {
-            case FDT_BEGIN_NODE: {
-                for (int i = 0; i < indent; i++) {
-                    console_puts("    ");
-                }
-
-                indent += 1;
-                ptr += 4;
-                char* c = ptr;
-                if (node || indent != 1) {
-                    while (*c) {
-                        console_printf("%c", *c++);
-                    }
-                    console_puts(":\n");
-                }
-
-                ptr = (void*) ((uint64_t) (c + 4) & ~0x3);
-                break;
-            }
-
-            case FDT_END_NODE:
-                indent -= 1;
-                ptr += 4;
-                break;
-
-            case FDT_PROP:
-                for (int i = 0; i < indent; i++) {
-                    console_puts("    ");
-                }
-
-                ptr += 4;
-                uint32_t len = be_to_le(32, ptr);
-                ptr += 4;
-                uint32_t name_offset = be_to_le(32, ptr);
-                ptr += 4;
-
-                console_printf("property %s = ", fdt->strings_block + name_offset);
-
-                if (*((char*) ptr) == 0) {
-                    console_printf("0x%lx (0x%x bytes)\n", be_to_le(len * 8, ptr), len);
-                } else {
-                    for (uint32_t i = 0; i < len; i++) {
-                        console_printf("%c", ((char*) ptr)[i]);
-                    }
-                    console_printf(" (0x%x bytes)\n", len);
-                }
-
-                ptr = (void*) ((uint64_t) (ptr + len + 3) & ~0x3);
-                break;
-
-            case FDT_NOP:
-                ptr += 4;
-                break;
-
-            case FDT_END:
-                break;
-        }
-    } while ((current = be_to_le(32, ptr)) != FDT_END && indent > 0);
-}
-
-// fdt_find(fdt_t*, char*, void*) -> void*
+// fdt_find(fdt_t*, str_t, void*) -> void*
 // Finds a device tree node with the given name. Returns null on failure.
-void* fdt_find(fdt_t* fdt, char* name, void* last) {
+void* fdt_find(fdt_t* fdt, str_t name, void* last) {
     if (last == (void*) 0) {
         last = fdt->structure_block;
     } else {
@@ -161,16 +46,16 @@ void* fdt_find(fdt_t* fdt, char* name, void* last) {
         switch ((fdt_node_type_t) current) {
             case FDT_BEGIN_NODE: {
                 char* c = last + 4;
-                char* temp_name = name;
+                size_t i = 0;
 
-                while (*c != '\0' && *c != '@' && *temp_name) {
-                    if (*c != *temp_name)
+                while (*c != '\0' && *c != '@' && i < name.len) {
+                    if (*c != name.bytes[i])
                         break;
                     c++;
-                    temp_name++;
+                    i++;
                 }
 
-                if ((*c == '\0' || *c == '@') && *temp_name == '\0')
+                if ((*c == '\0' || *c == '@') && i >= name.len)
                     return last;
 
                 while (*c++);
@@ -207,7 +92,7 @@ void* fdt_find(fdt_t* fdt, char* name, void* last) {
 // fdt_path(fdt_t*, char*, void*) -> void*
 // Finds a device tree node with the given path. Returns null on failure.
 void* fdt_path(fdt_t* fdt, char* path, void* last) {
-    if (last == (void*) 0 || path[0] == '/') {
+    if (last == NULL || path[0] == '/') {
         last = fdt->structure_block;
         path += path[0] == '/';
     } else {
@@ -274,6 +159,15 @@ void* fdt_path(fdt_t* fdt, char* path, void* last) {
     }
 
     return (void*) 0;
+}
+
+bool streq(char* a, char* b) {
+    for (; *a && *b; a++, b++) {
+        if (*a != *b)
+            return false;
+    }
+
+    return *a == *b;
 }
 
 // fdt_get_node_addr(void*) -> uint64_t
@@ -369,7 +263,7 @@ struct fdt_property fdt_get_property(fdt_t* fdt, void* node, char* key) {
                 uint32_t name_offset = be_to_le(32, node);
                 node += 4;
 
-                if (depth == 1 && !strcmp(fdt->strings_block + name_offset, key)) {
+                if (depth == 1 && streq(fdt->strings_block + name_offset, key)) {
                     return (struct fdt_property) {
                         .len = len,
                         .key = fdt->strings_block + name_offset,

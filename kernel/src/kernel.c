@@ -42,12 +42,12 @@ void kinit(uint64_t hartid, void* fdt) {
     struct fdt_property initrd_end_prop = fdt_get_property(&devicetree, chosen, "linux,initrd-end");
     void* initrd_end = (void*) be_to_le(32, initrd_end_prop.data);
 
+    mark_as_used(initrd_start, (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
     mmu_level_1_t* top = create_mmu_table();
     identity_map_kernel(top, &devicetree, initrd_start, initrd_end);
     set_mmu(top);
 
     console_printf("initrd start: %p\ninitrd end: %p\n", initrd_start, initrd_end);
-    mark_as_used(initrd_start, (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     if (fat.fat == NULL) {
@@ -78,8 +78,7 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     process_t* initd = get_process(0);
-    initd->xs[REGISTER_A0] = (uint64_t) initrd_start;
-    initd->xs[REGISTER_A1] = (size_t) initrd_end - (size_t) initrd_start;
+    initd->xs[REGISTER_A0] = (uint64_t) fdt;
 
     uint64_t sstatus;
     asm volatile("csrr %0, sstatus" : "=r" (sstatus));

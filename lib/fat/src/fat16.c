@@ -1,7 +1,7 @@
 #include <stdbool.h>
 
 #include "fat16.h"
-#include "memory.h"
+#include "core/prelude.h"
 #include "syscalls.h"
 
 #define ATTR_READ_ONLY      0x01
@@ -65,7 +65,7 @@ fat16_fs_t verify_initrd(void* start, void* end) {
 // find_file_in_root_directory(fat16_fs_t*, char*) -> fat_root_dir_entry_t*
 // Finds a file in the root directory. Note that the kernel does not have the ability to traverse files in fat file systems because it only needs to spawn initd, which is in the root directory.
 fat_root_dir_entry_t* find_file_in_root_directory(fat16_fs_t* fs, char* name) {
-    for (uint16_t i = 0; i < fs->root_entry_count; i++) {
+    for (uint16_t i = 0; i < fs->root_entry_count;) {
         if ((fs->root_dir[i].long_name.attributes & ATTR_LONG_NAME) == ATTR_LONG_NAME) {
             uint16_t j = i;
             size_t k = 0;
@@ -118,10 +118,9 @@ fat_root_dir_entry_t* find_file_in_root_directory(fat16_fs_t* fs, char* name) {
             }
 
             if (equals)
-                return fs->root_dir + i + 1;
-
-            i++;
-        }
+                return fs->root_dir + j + 1;
+            i = j + 1;
+        } else i++;
     }
 
     return NULL;
@@ -142,7 +141,7 @@ uint32_t get_next_cluster(fat16_fs_t* fs, uint32_t cluster_id) {
         return 0;
 
     uint32_t next = fs->fat[cluster_id];
-    if (next > fs->cluster_count + 2)
+    if (next > fs->cluster_count)
         return 0;
     return next;
 }
@@ -160,7 +159,7 @@ void* read_file_full(fat16_fs_t* fs, char* name, size_t* size_ptr) {
     size_t size = fs->sectors_per_cluster * fs->bytes_per_sector;
     size_t i = 0;
     for (uint32_t cluster_id = entry->file.first_cluster_low; (cluster_data = get_fat_cluster_data(fs, cluster_id)); cluster_id = get_next_cluster(fs, cluster_id), i++) {
-        memcpy(data + i * size, cluster_data, size);
+        memcpy(data + i * size, cluster_data, size < entry->file.file_size - size * i ? size : entry->file.file_size - size * i);
     }
 
     *size_ptr = entry->file.file_size;

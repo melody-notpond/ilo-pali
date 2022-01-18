@@ -13,6 +13,11 @@ typedef struct {
     uint64_t nanos;
 } time_t;
 
+typedef struct {
+    void* virtual_;
+    uint64_t physical;
+} virtual_physical_pair_t;
+
 // uart_write(char* data, size_t length) -> void
 // Writes to the uart port.
 void uart_write(char* s, size_t length);
@@ -95,5 +100,8 @@ void lock(void* ref, int type, uint64_t value);
 // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
 uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size);
 
+// alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
+// Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.
+virtual_physical_pair_t alloc_pages_physical(size_t count, int permissions);
 
 #endif /* SYSCALL_H */

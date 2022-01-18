@@ -6,6 +6,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define PAGE_SIZE 4096
+
 // memcpy(void*, const void*, unsigned long int) -> void*
 // Copys the data from one pointer to another.
 void* memcpy(void* dest, const void* src, unsigned long int n);

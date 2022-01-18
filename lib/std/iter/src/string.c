@@ -83,6 +83,59 @@ void string_push_str(string_t* s, str_t str) {
     s->len += str.len;
 }
 
+// str_equals(str_t, str_t) -> bool
+// Determines whether two strs are equal.
+bool str_equals(str_t a, str_t b) {
+    if (a.len != b.len)
+        return false;
+    else if (a.bytes == NULL || b.bytes == NULL)
+        return false;
+
+    for (size_t i = 0; i < a.len; i++) {
+        if (a.bytes[i] != b.bytes[i])
+            return false;
+    }
+
+    return true;
+}
+
+// str_is_empty(str_t) -> bool
+// Returns true if the given str is empty.
+bool str_is_empty(str_t s) {
+    return s.len == 0 || s.bytes == NULL;
+}
+
+// str_split(str_t, str_t, str_t) -> str_t
+// Splits the first argument based on the second argument, starting off on the last argument's offset.
+str_t str_split(str_t s, str_t spliter, str_t last) {
+    str_t cont;
+    if (last.bytes != NULL) {
+        if (s.bytes + s.len <= last.bytes + last.len + spliter.len)
+            return STREMPTY;
+        cont = (str_t) {
+            .len = s.len - (last.bytes - s.bytes + last.len + spliter.len),
+            .bytes = last.bytes + last.len + spliter.len,
+        };
+    }
+    else cont = s;
+
+    if (spliter.len > cont.len)
+        return STREMPTY;
+
+    for (size_t i = 0; i <= cont.len - spliter.len; i++) {
+        if (str_equals(spliter, (str_t) {
+            .len = spliter.len,
+            .bytes = cont.bytes + i,
+        }))
+            return (str_t) {
+                .len = i,
+                .bytes = cont.bytes,
+            };
+    }
+
+    return cont;
+}
+
 // dealloc_string(string_t*) -> void
 // Deallocates a string.
 void dealloc_string(string_t* s) {

@@ -2,7 +2,8 @@
 #ifndef FDT_H
 #define FDT_H
 
-#include <stdint.h>
+#include "core/prelude.h"
+#include "iter/string.h"
 
 typedef unsigned char be32_t[4];
 typedef unsigned char be64_t[8];
@@ -54,13 +55,9 @@ uint64_t be_to_le(uint64_t size, void* be);
 // Verifies a fdt by checking its magic number.
 fdt_t verify_fdt(void* fdt);
 
-// dump_fdt(fdt_t*, void*) -> void
-// Dumps an fdt to the UART.
-void dump_fdt(fdt_t* fdt, void* node);
-
-// fdt_find(fdt_t*, char*, void*) -> void*
+// fdt_find(fdt_t*, str_t, void*) -> void*
 // Finds a device tree node with the given name. Returns null on failure.
-void* fdt_find(fdt_t* fdt, char* name, void* last);
+void* fdt_find(fdt_t* fdt, str_t name, void* last);
 
 // fdt_path(fdt_t*, char*, void*) -> void*
 // Finds a device tree node with the given path. Returns null on failure.

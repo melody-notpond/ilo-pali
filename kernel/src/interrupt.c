@@ -52,7 +52,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // External interrupt
             case 9:
-                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
                 while(1);
                 break;
 
@@ -85,7 +85,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Store access fault
             case 7:
-                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
                 while(1);
 
             // Environment call (ie, syscall)
@@ -517,9 +517,52 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // claim_interrupt(int interrupt, void (*handler)(int interrupt)) -> int status
-                    // Claims or unclaims an interrupt. If the handler is NULL, the interrupt is unclaimed. Returns 0 on success and 1 if the action is not allowed (ie, interrupt was already claimed or is not owned by the process).
+                    // claim_interrupt(pid_t pid, int interrupt, void (*handler)(int interrupt)) -> int status
+                    // Claims or unclaims an interrupt. If the handler is NULL, the interrupt is unclaimed. Returns 0 on success and 1 if the action is not allowed (ie, interrupt was already claimed, not owned by the process with the passed in pid, or the process is not initd).
                     case 14: {
+                        break;
+                    }
+
+                    // alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
+                    // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.
+                    case 15: {
+                        size_t count = trap->xs[REGISTER_A1];
+                        int perms = trap->xs[REGISTER_A2];
+                        int flags = 0;
+
+                        if (trap->pid != 0) {
+                            trap->xs[REGISTER_A0] = 0;
+                            break;
+                        }
+
+                        if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
+                            trap->xs[REGISTER_A0] = 0;
+                            trap->xs[REGISTER_A1] = 0;
+                            break;
+                        }
+
+                        if (perms & 0x01)
+                            flags |= MMU_BIT_EXECUTE;
+                        else if (perms & 0x02)
+                            flags |= MMU_BIT_WRITE;
+                        if (perms & 0x04)
+                            flags |= MMU_BIT_READ;
+
+                        void* physical = alloc_pages(count);
+                        if (physical == 0) {
+                            trap->xs[REGISTER_A0] = 0;
+                            trap->xs[REGISTER_A1] = 0;
+                            break;
+                        }
+
+                        process_t* process = get_process(trap->pid);
+                        for (size_t i = 0; i < count; i++) {
+                            mmu_map(process->mmu_data, process->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
+                        }
+
+                        trap->xs[REGISTER_A0] = (uint64_t) process->last_virtual_page; 
+                        trap->xs[REGISTER_A0] = (uint64_t) physical;
+                        process->last_virtual_page += PAGE_SIZE * count;
                         break;
                     }
 
@@ -539,7 +582,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Invalid or handled by machine mode
             default:
-                console_printf("cause: %lx\ntrap location: %lx\n", cause, trap->pc);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
                 while(1);
         }
     }

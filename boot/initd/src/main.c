@@ -3,22 +3,27 @@
 #include "fdt.h"
 #include "iter/string.h"
 #include "syscalls.h"
+#include "join.h"
 #include "fat16.h"
 #include "format.h"
 
-void printf_writer(str_t s, void* _) {
-    uart_write((char*) s.bytes, s.len);
-}
-
-void uart_printf(char* format, ...) {
-    va_list va;
-    va_start(va, format);
-    vformat(NULL, printf_writer, format, va);
-    va_end(va);
-}
-
 void _start(void* fdt) {
-    uart_write("initd started\n", 14);
+    uart_printf("initd started\n");
+
+    alloc_t page_alloc = (alloc_t) PAGE_ALLOC;
+    free_buckets_alloc_t free_buckets = free_buckets_allocator_options(&page_alloc, PAGE_ALLOC_PAGE_SIZE);
+    alloc_t allocator = create_free_buckets_allocator(&free_buckets);
+    debug_free_buckets_alloc(&free_buckets);
+
+    void* a = alloc(&allocator, 10);
+    void* b = alloc(&allocator, 43);
+    debug_free_buckets_alloc(&free_buckets);
+    dealloc(&allocator, a);
+    debug_free_buckets_alloc(&free_buckets);
+    b = alloc_resize(&allocator, b, 69);
+    debug_free_buckets_alloc(&free_buckets);
+    dealloc(&allocator, b);
+    debug_free_buckets_alloc(&free_buckets);
 
     fdt_t tree = verify_fdt(fdt);
 
@@ -39,16 +44,13 @@ void _start(void* fdt) {
     for (str_t part = str_split(module_maps, S("\n"), STREMPTY); part.bytes != NULL; part = str_split(module_maps, S("\n"), part)) {
         str_t device = str_split(part, S(" "), STREMPTY);
         str_t module = str_split(part, S(" "), device);
-        uart_write((void*) device.bytes, device.len);
-        uart_write(" maps to ", 9);
-        uart_write((void*) module.bytes, module.len);
-        uart_write("\n", 1);
+        uart_printf("%S maps to %S\n", device, module);
         void* module_elf = NULL;
         size_t module_size = 0;
 
         void* node = NULL;
         while ((node = fdt_find(&tree, device, node))) {
-            uart_write("found thing\n", 12);
+            uart_printf("found thing\n");
             if (module_elf == NULL) {
                 char buffer[module.len + 1];
                 memcpy(buffer, module.bytes, module.len);
@@ -59,7 +61,7 @@ void _start(void* fdt) {
                     break;
             }
 
-            uart_write("spawning\n", 9);
+            uart_printf("spawning\n");
             spawn_process(module_elf, module_size, NULL, 0);
         }
 

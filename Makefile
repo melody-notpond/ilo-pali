@@ -35,6 +35,7 @@ lib: lib_dir
 	$(MAKE) -C lib/std/core/
 	$(MAKE) -C lib/std/format/
 	$(MAKE) -C lib/std/iter/
+	$(MAKE) -C lib/std/join/
 	$(MAKE) -C lib/std/syscall/
 
 lib_dir:

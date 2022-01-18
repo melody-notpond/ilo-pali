@@ -5,6 +5,7 @@ void* memcpy(void* dest, const void* src, unsigned long int n) {
     const unsigned char* s1 = src;
     unsigned char* end = dest + n;
 
+
     for (; d1 < end; d1++, s1++) {
         *d1 = *s1;
     }

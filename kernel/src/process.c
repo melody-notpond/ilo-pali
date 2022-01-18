@@ -82,6 +82,8 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
         }
     }
 
+    max_page = (void*) (((intptr_t) max_page + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE);
+
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
@@ -92,7 +94,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
 
     if (args != NULL && arg_size != 0) {
         for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1); i += PAGE_SIZE) {
-            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
             memcpy(physical, args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
         }
 

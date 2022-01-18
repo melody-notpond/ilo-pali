@@ -325,7 +325,7 @@ void clean_mmu_table(mmu_level_1_t* top) {
                 if (level3) {
                     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
                         mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
-                        if (level4)
+                        if (level4 && (level3[i] & MMU_BIT_GLOBAL) == 0)
                             dealloc_pages(level4, 1);
                     }
 

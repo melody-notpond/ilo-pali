@@ -33,6 +33,7 @@ lib: lib_dir
 	$(MAKE) -C lib/fdt/
 	$(MAKE) -C lib/std/alloc/
 	$(MAKE) -C lib/std/core/
+	$(MAKE) -C lib/std/format/
 	$(MAKE) -C lib/std/iter/
 	$(MAKE) -C lib/std/syscall/
 

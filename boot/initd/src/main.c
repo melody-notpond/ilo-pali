@@ -4,6 +4,18 @@
 #include "iter/string.h"
 #include "syscalls.h"
 #include "fat16.h"
+#include "format.h"
+
+void printf_writer(str_t s, void* _) {
+    uart_write((char*) s.bytes, s.len);
+}
+
+void uart_printf(char* format, ...) {
+    va_list va;
+    va_start(va, format);
+    vformat(NULL, printf_writer, format, va);
+    va_end(va);
+}
 
 void _start(void* fdt) {
     uart_write("initd started\n", 14);
@@ -54,6 +66,12 @@ void _start(void* fdt) {
         dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);
     }
 
-    while(1);
+    while(1) {
+        pid_t pid;
+        int type;
+        uint64_t data;
+        uint64_t meta;
+        recv(true, &pid, &type, &data, &meta);
+    }
 }
 

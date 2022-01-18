@@ -128,7 +128,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (addr == NULL) {
                             process_t* process = get_process(trap->pid);
-                            process_t* page_holder = process->thread_source != (uint64_t) -1 ? process : get_process(process->thread_source);
+                            process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                             addr = page_holder->last_virtual_page;
 
                             for (size_t i = 0; i < count; i++) {
@@ -454,7 +454,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                                 mmu_level_1_t* current = get_mmu();
                                 mmu_map_mmu(current, sender->mmu_data);
-                                process_t* page_holder = process->thread_source != (uint64_t) -1 ? process : get_process(process->thread_source);
+                                process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                                 for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     void* virtual = (void*) message.data - message.data % PAGE_SIZE + i * PAGE_SIZE;
                                     intptr_t entry = mmu_walk(sender->mmu_data, virtual);

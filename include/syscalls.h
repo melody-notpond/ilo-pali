@@ -68,6 +68,11 @@ uint64_t spawn_process(void* exe, size_t exe_size, void* args, size_t arg_size);
 // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
 uint64_t kill(uint64_t pid);
 
+#define MSG_TYPE_SIGNAL    0
+#define MSG_TYPE_INT       1
+#define MSG_TYPE_POINTER   2
+#define MSG_TYPE_DATA      3
+
 // send(bool block, pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status
 // Sends data to the given process. Returns 0 on success, 1 if process does not exist, 2 if invalid arguments, and 3 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
 // Types:
@@ -84,6 +89,13 @@ int send(bool block, uint64_t pid, int type, uint64_t data, uint64_t metadata);
 // recv(bool block, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
 // Blocks until a message is received and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not.
 int recv(bool block, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
+
+#define LOCK_WAIT   0
+#define LOCK_WAKE   1
+#define LOCK_U8     0
+#define LOCK_U16    2
+#define LOCK_U32    4
+#define LOCK_U64    6
 
 // lock(void* ref, int type, uint64_t value) -> int status
 // Locks the current process until the given condition is true. Returns 0 on success.

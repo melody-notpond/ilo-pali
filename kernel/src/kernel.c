@@ -21,11 +21,11 @@ void kinit(uint64_t hartid, void* fdt) {
     trap_t* current_trap = &trap;
     asm volatile("csrw sscratch, %0" : "=r" (current_trap));
 
-    console_printf("toki, ale o!\nhartid: %lx\nfdt pointer: %p\n", hartid, fdt);
+    console_printf("[kinit] toki, ale o!\n[kinit] hartid: %lx\n[kinit] fdt pointer: %p\n", hartid, fdt);
 
     fdt_t devicetree = verify_fdt(fdt);
     if (devicetree.header == NULL) {
-        console_printf("invalid fdt pointer %p\n", fdt);
+        console_printf("[kinit] invalid fdt pointer %p\n", fdt);
         while(1);
     }
 
@@ -47,22 +47,22 @@ void kinit(uint64_t hartid, void* fdt) {
     identity_map_kernel(top, &devicetree, initrd_start, initrd_end);
     set_mmu(top);
 
-    console_printf("initrd start: %p\ninitrd end: %p\n", initrd_start, initrd_end);
+    console_printf("[kinit] initrd start: %p\n[kinit] initrd end: %p\n", initrd_start, initrd_end);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     if (fat.fat == NULL) {
-        console_puts("initrd image is invalid\n");
+        console_puts("[kinit] initrd image is invalid\n");
         while(1);
     }
 
-    console_puts("verified initrd image\n");
+    console_puts("[kinit] verified initrd image\n");
     init_processes();
 
     size_t size;
     void* data = read_file_full(&fat, "initd", &size);
     elf_t elf = verify_elf(data, size);
     if (elf.header == NULL) {
-        console_puts("failed to verify initd elf file\n");
+        console_puts("[kinit] failed to verify initd elf file\n");
         while(1);
     }
 
@@ -88,7 +88,7 @@ void kinit(uint64_t hartid, void* fdt) {
     uint64_t sie = 0x220;
     asm volatile("csrw sie, %0" : "=r" (sie));
 
-    console_puts("starting initd\n");
+    console_puts("[kinit] starting initd\n");
     switch_to_process(&trap, 0);
     sbi_set_timer(0);
     jump_out_of_trap(&trap);

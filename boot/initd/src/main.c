@@ -13,17 +13,6 @@ void _start(void* fdt) {
     alloc_t page_alloc = (alloc_t) PAGE_ALLOC;
     free_buckets_alloc_t free_buckets = free_buckets_allocator_options(&page_alloc, PAGE_ALLOC_PAGE_SIZE);
     alloc_t allocator = create_free_buckets_allocator(&free_buckets);
-    debug_free_buckets_alloc(&free_buckets);
-
-    void* a = alloc(&allocator, 10);
-    void* b = alloc(&allocator, 43);
-    debug_free_buckets_alloc(&free_buckets);
-    dealloc(&allocator, a);
-    debug_free_buckets_alloc(&free_buckets);
-    b = alloc_resize(&allocator, b, 69);
-    debug_free_buckets_alloc(&free_buckets);
-    dealloc(&allocator, b);
-    debug_free_buckets_alloc(&free_buckets);
 
     fdt_t tree = verify_fdt(fdt);
 

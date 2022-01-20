@@ -32,6 +32,9 @@ typedef struct {
     struct s_free_bucket* free_64;
     struct s_free_bucket* free_256;
     struct s_free_bucket* free_1024;
+    struct s_free_bucket* free_4096;
+    struct s_free_bucket* free_16384;
+    struct s_free_bucket* free_65536;
 } free_buckets_alloc_t;
 
 extern const alloc_t NULL_ALLOC;

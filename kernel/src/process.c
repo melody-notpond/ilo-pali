@@ -5,7 +5,6 @@
 #include "process.h"
 
 process_t* processes;
-size_t processes_list_page_count;
 
 pid_t MAX_PID = 1024;
 pid_t current_pid = 0;
@@ -13,12 +12,7 @@ pid_t current_pid = 0;
 // init_processes() -> void
 // Initialises process related stuff.
 void init_processes() {
-    processes_list_page_count = (MAX_PID * sizeof(process_t) + PAGE_SIZE - 1) / PAGE_SIZE;
-    processes = alloc_pages(processes_list_page_count);
-    mmu_level_1_t* top = get_mmu();
-    for (size_t i = 0; i < processes_list_page_count; i++) {
-        mmu_change_flags(top, (void*) processes + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
-    }
+    processes = malloc(MAX_PID * sizeof(process_t));
 }
 
 // spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
@@ -50,10 +44,6 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     } else {
         top = create_mmu_table();
         identity_map_kernel(top, NULL, NULL, NULL);
-        for (size_t i = 0; i < processes_list_page_count; i++) {
-            void* p = (void*) processes + i * PAGE_SIZE;
-            mmu_map(top, p, p, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
-        }
     }
 
     page_t* max_page = NULL;
@@ -114,7 +104,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
 
-    processes[pid].message_queue = alloc_pages(1);
+    processes[pid].message_queue = malloc(PROCESS_MESSAGE_QUEUE_SIZE * sizeof(process_message_t));
     mmu_map(top, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
     processes[pid].message_queue_start = 0;
     processes[pid].message_queue_end = 0;
@@ -173,7 +163,7 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     processes[pid].pc = (uint64_t) func;
     processes[pid].state = PROCESS_STATE_WAIT;
 
-    processes[pid].message_queue = alloc_pages(1);
+    processes[pid].message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE);
     mmu_map(parent->mmu_data, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
     processes[pid].message_queue_start = 0;
     processes[pid].message_queue_end = 0;
@@ -288,6 +278,7 @@ void kill_process(pid_t pid) {
     if (processes[pid].mmu_data == get_mmu())
         set_mmu(processes[0].mmu_data);
 
+    free(processes[pid].message_queue);
     clean_mmu_table(processes[pid].mmu_data);
     processes[pid].state = PROCESS_STATE_DEAD;
 }

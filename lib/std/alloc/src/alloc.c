@@ -63,6 +63,8 @@ alloc_t create_bump_allocator(bump_alloc_t* bump) {
 // free_buckets_allocator_options(alloc_t*, size_t) -> free_buckets_alloc_t
 // Creates the free buckets allocation method options.
 free_buckets_alloc_t free_buckets_allocator_options(alloc_t* fallback, size_t fallback_alloc_size) {
+    if (fallback_alloc_size < 65536 + sizeof(struct s_free_bucket))
+        fallback_alloc_size = 65536 + sizeof(struct s_free_bucket);
     return (free_buckets_alloc_t) {
         .fallback = fallback,
         .fallback_alloc_size = fallback_alloc_size,
@@ -71,6 +73,9 @@ free_buckets_alloc_t free_buckets_allocator_options(alloc_t* fallback, size_t fa
         .free_64 = NULL,
         .free_256 = NULL,
         .free_1024 = NULL,
+        .free_4096 = NULL,
+        .free_16384 = NULL,
+        .free_65536 = NULL,
     };
 }
 
@@ -133,12 +138,41 @@ void* free_buckets_alloc(void* data, uint64_t origin, size_t size) {
 
         bucket = free_buckets->free_1024;
         free_buckets->free_1024 = bucket->next;
+    } else if (size <= 4096) {
+        if (free_buckets->free_4096 == NULL) {
+            void* unformatted = alloc(free_buckets->fallback, free_buckets->fallback_alloc_size);
+            if (unformatted == NULL)
+                return NULL;
+            free_buckets->free_4096 = free_buckets_format_unused(unformatted, 4096, free_buckets->fallback_alloc_size);
+        }
+
+        bucket = free_buckets->free_4096;
+        free_buckets->free_4096 = bucket->next;
+    } else if (size <= 16384) {
+        if (free_buckets->free_16384 == NULL) {
+            void* unformatted = alloc(free_buckets->fallback, free_buckets->fallback_alloc_size);
+            if (unformatted == NULL)
+                return NULL;
+            free_buckets->free_16384 = free_buckets_format_unused(unformatted, 16384, free_buckets->fallback_alloc_size);
+        }
+
+        bucket = free_buckets->free_16384;
+        free_buckets->free_16384 = bucket->next;
+    } else if (size <= 65536) {
+        if (free_buckets->free_65536 == NULL) {
+            void* unformatted = alloc(free_buckets->fallback, free_buckets->fallback_alloc_size);
+            if (unformatted == NULL)
+                return NULL;
+            free_buckets->free_65536 = free_buckets_format_unused(unformatted, 65536, free_buckets->fallback_alloc_size);
+        }
+
+        bucket = free_buckets->free_65536;
+        free_buckets->free_65536 = bucket->next;
     } else {
-        size_t s = size + sizeof(struct s_free_bucket);
-        bucket = alloc(free_buckets->fallback, s);
+        bucket = alloc(free_buckets->fallback, size + sizeof(struct s_free_bucket));
         if (bucket == NULL)
             return NULL;
-        bucket->size = s;
+        bucket->size = size;
     }
 
     if (bucket == NULL)
@@ -184,9 +218,21 @@ void free_buckets_dealloc(void* data, void* p) {
         bucket->next = free_buckets->free_256;
         free_buckets->free_256 = bucket;
     } else if (bucket->size <= 1024) {
-        free_buckets->free_256->prev = bucket;
+        free_buckets->free_1024->prev = bucket;
         bucket->next = free_buckets->free_1024;
-        free_buckets->free_256 = bucket;
+        free_buckets->free_1024 = bucket;
+    } else if (bucket->size <= 4096) {
+        free_buckets->free_4096->prev = bucket;
+        bucket->next = free_buckets->free_4096;
+        free_buckets->free_4096 = bucket;
+    } else if (bucket->size <= 16384) {
+        free_buckets->free_16384->prev = bucket;
+        bucket->next = free_buckets->free_16384;
+        free_buckets->free_16384 = bucket;
+    } else if (bucket->size <= 65536) {
+        free_buckets->free_65536->prev = bucket;
+        bucket->next = free_buckets->free_65536;
+        free_buckets->free_65536 = bucket;
     } else {
         dealloc(free_buckets->fallback, bucket);
     }

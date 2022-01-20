@@ -161,8 +161,9 @@ void* read_file_full(fat16_fs_t* fs, char* name, size_t* size_ptr) {
     fat_root_dir_entry_t* entry = find_file_in_root_directory(fs, name);
     if (entry == NULL)
         return NULL;
-    size_t page_count = (entry->file.file_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    void* data = alloc_pages(page_count);
+    void* data = malloc(entry->file.file_size);
+    if (data == NULL)
+        return NULL;
 
     void* cluster_data = NULL;
     size_t size = fs->sectors_per_cluster * fs->bytes_per_sector;

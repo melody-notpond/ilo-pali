@@ -18,6 +18,13 @@ mmu_level_1_t* get_mmu() {
 // Sets the satp csr to the provided mmu table pointer.
 void set_mmu(mmu_level_1_t* top) {
     if (top) {
+        mmu_level_1_t* current = get_mmu();
+        if (current) {
+            for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+                top[i] = current[i];
+            }
+        }
+
         uint64_t mmu = 0x8000000000000000 | ((intptr_t) top >> 12);
         asm volatile("csrw satp, %0" : "=r" (mmu));
         asm volatile("sfence.vma");
@@ -37,7 +44,20 @@ void flush_mmu() {
 // create_mmu_table() -> mmu_level_1_t*
 // Creates an empty mmu table.
 mmu_level_1_t* create_mmu_table() {
-    return alloc_pages(1);
+    mmu_level_1_t* top = alloc_pages(1);
+    mmu_level_1_t* current = get_mmu();
+
+    if (current != NULL) {
+        for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+            top[i] = current[i];
+        }
+    } else {
+        for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+            top[i] = MMU_BIT_GLOBAL | MMU_BIT_VALID;
+        }
+    }
+
+    return top;
 }
 
 // mmu_map(mmu_level_1_t*, void*, void*, int) -> void
@@ -166,6 +186,69 @@ void* mmu_remove(mmu_level_1_t* top, void* virtual) {
     return NULL;
 }
 
+// mmu_kalloc(mmu_level_1_t*, void*, size_t)
+// Allocates pages in the top quarter of the mmu table.
+void* mmu_kalloc(mmu_level_1_t* top, void* physical, size_t count) {
+    size_t i;
+    for (i = PAGE_SIZE - sizeof(void*); i >= PAGE_SIZE * 3 / 4; i -= sizeof(void*)) {
+        if (MMU_UNWRAP(2, top[i / sizeof(void*)]))
+            break;
+    }
+
+    if (i < PAGE_SIZE * 3 / 4)
+        i = PAGE_SIZE * 3 / 4;
+    else if (i == PAGE_SIZE - sizeof(void*))
+        return NULL;
+
+    size_t j = 0;
+    size_t k = 0;
+    uint64_t virtual = 0;
+    for (; i < PAGE_SIZE; i += sizeof(void*)) {
+        mmu_level_2_t* level2 = MMU_UNWRAP(2, top[i / sizeof(void*)]);
+
+        if (level2 == NULL) {
+            virtual = (uint64_t) ((uint64_t) i / (uint64_t) sizeof(void*)) << (uint64_t) 30;
+            console_printf("%lx, %lx\n", i, virtual);
+            break;
+        }
+
+        for (; j < PAGE_SIZE; j += sizeof(void*)) {
+            mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[j / sizeof(void*)]);
+
+            if (level3 == NULL) {
+                virtual = i / sizeof(void*) << 30 | j / sizeof(void*) << 21;
+                break;
+            }
+
+            for (; k < PAGE_SIZE; k += sizeof(void*)) {
+                mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[k / sizeof(void*)]);
+
+                if (level4 == NULL) {
+                    virtual = i / sizeof(void*) << 30 | j / sizeof(void*) << 21 | k / sizeof(void*) << 12;
+                    break;
+                }
+            }
+
+            if (virtual)
+                break;
+            k = 0;
+        }
+
+        if (virtual)
+            break;
+        j = 0;
+    }
+
+    if (virtual == 0)
+        return NULL;
+
+    for (size_t i = 0; i < count; i++) {
+        mmu_map(top, (void*) virtual + i * PAGE_SIZE, physical + i * PAGE_SIZE, MMU_BIT_GLOBAL | MMU_BIT_READ | MMU_BIT_WRITE);
+    }
+
+    return (void*) virtual;
+}
+
 // mmu_map_range_identity(mmu_level_1_t*, void*, void*, int) -> void
 // Maps the given range to itself in the given mmu table.
 void mmu_map_range_identity(mmu_level_1_t* top, void* start, void* end, int flags) {
@@ -248,13 +331,17 @@ void remove_unused_entries(mmu_level_1_t* top) {
                         }
                     }
 
-                    if (!level3_used)
+                    if (!level3_used) {
                         dealloc_pages(level3, 1);
+                        level2[i] = 0;
+                    }
                 }
             }
 
-            if (!level2_used)
+            if (!level2_used) {
                 dealloc_pages(level2, 1);
+                top[i] = 0;
+            }
         }
     }
 }
@@ -329,17 +416,14 @@ void clean_mmu_table(mmu_level_1_t* top) {
                             dealloc_pages(level4, 1);
                     }
 
-                    mmu_remove(current, level3);
-                    dealloc_pages(level3, 1);
+                    dealloc_pages(mmu_remove(current, level3), 1);
                 }
             }
 
-            mmu_remove(current, level2);
-            dealloc_pages(level2, 1);
+            dealloc_pages(mmu_remove(current, level2), 1);
         }
     }
 
-    mmu_remove(current, top);
-    dealloc_pages(top, 1);
+    dealloc_pages(mmu_remove(current, top), 1);
     remove_unused_entries(current);
 }

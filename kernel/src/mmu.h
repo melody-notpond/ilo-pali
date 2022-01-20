@@ -62,6 +62,10 @@ intptr_t mmu_walk(mmu_level_1_t* top, void* virtual_);
 // Removes an entry from the mmu table.
 void* mmu_remove(mmu_level_1_t* top, void* virtual_);
 
+// mmu_kalloc(mmu_level_1_t*, void*, size_t)
+// Allocates pages in the top quarter of the mmu table.
+void* mmu_kalloc(mmu_level_1_t* top, void* physical, size_t count);
+
 // identity_map_kernel(fdt_t*, void*, void*) -> void
 // Identity maps the kernel in the given mmu table.
 void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, void* initrd_end);

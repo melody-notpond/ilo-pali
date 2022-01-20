@@ -9,6 +9,8 @@
 #include "mmu.h"
 #include "time.h"
 
+#define PROCESS_MESSAGE_QUEUE_SIZE 128
+
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
 

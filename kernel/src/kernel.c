@@ -22,6 +22,7 @@ void kinit(uint64_t hartid, void* fdt) {
     asm volatile("csrw sscratch, %0" : "=r" (current_trap));
 
     console_printf("[kinit] toki, ale o!\n[kinit] hartid: %lx\n[kinit] fdt pointer: %p\n", hartid, fdt);
+    console_printf("%llx\n", ((unsigned long long) 1) << (unsigned long long) 32);
 
     fdt_t devicetree = verify_fdt(fdt);
     if (devicetree.header == NULL) {
@@ -67,7 +68,7 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     spawn_process_from_elf(0, &elf, 2, NULL, 0);
-    dealloc_pages(data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
+    free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);

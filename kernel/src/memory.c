@@ -113,6 +113,20 @@ void* alloc_pages(size_t count) {
     return NULL;
 }
 
+// kalloc_pages(size_t) -> void*
+// Allocates the given number of pages, mapping them to the top quarter of the page entries.
+void* kalloc_pages(size_t count) {
+    void* p = alloc_pages(count);
+    if (p == NULL)
+        return NULL;
+
+    mmu_level_1_t* top = get_mmu();
+    if (top == NULL)
+        return NULL;
+
+    return mmu_kalloc(top, p, count);
+}
+
 // incr_page_ref_count(void*, size_t) -> void
 // Increments the reference count of the selected pages.
 void incr_page_ref_count(void* page, size_t count) {
@@ -141,6 +155,231 @@ void dealloc_pages(void* page, size_t count) {
         }
         rc++;
     }
+}
+
+struct s_free_bucket {
+    struct s_free_bucket* next;
+    struct s_free_bucket* prev;
+    size_t size;
+    uint64_t origin;
+    uint8_t data[];
+};
+
+typedef struct {
+    struct s_free_bucket* used;
+    struct s_free_bucket* free_16;
+    struct s_free_bucket* free_64;
+    struct s_free_bucket* free_256;
+    struct s_free_bucket* free_1024;
+    struct s_free_bucket* free_4096;
+    struct s_free_bucket* free_16384;
+    struct s_free_bucket* free_65536;
+} free_buckets_alloc_t;
+
+static free_buckets_alloc_t GLOBAL_ALLOC = { 0 };
+static const size_t GLOBAL_ALLOC_FALLBACK_PAGE_COUNT = 65;
+
+struct s_free_bucket* free_buckets_format_unused(void* data, size_t bucket_size, size_t total_size) {
+    mmu_level_1_t* top = get_mmu();
+    if (top != NULL) {
+        for (size_t i = 0; i < GLOBAL_ALLOC_FALLBACK_PAGE_COUNT; i++) {
+            mmu_change_flags(top, data + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
+        }
+    }
+
+    size_t size = sizeof(struct s_free_bucket) + bucket_size;
+    for (size_t i = 0; i + size < total_size; i += size) {
+        struct s_free_bucket* bucket = data + i;
+        if (i > 0)
+            bucket->prev = data + i - size;
+        if (i + size < total_size)
+            bucket->next = data + i + size;
+        bucket->size = bucket_size;
+        bucket->origin = 0;
+    }
+
+    return data;
+}
+
+void* free_buckets_alloc(size_t size, uint64_t origin) {
+    struct s_free_bucket* bucket = NULL;
+    if (size <= 16) {
+        if (GLOBAL_ALLOC.free_16 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_16 = free_buckets_format_unused(unformatted, 16, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_16;
+        GLOBAL_ALLOC.free_16 = bucket->next;
+    } else if (size <= 64) {
+        if (GLOBAL_ALLOC.free_64 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_64 = free_buckets_format_unused(unformatted, 64, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_64;
+        GLOBAL_ALLOC.free_64 = bucket->next;
+    } else if (size <= 256) {
+        if (GLOBAL_ALLOC.free_256 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_256 = free_buckets_format_unused(unformatted, 256, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_256;
+        GLOBAL_ALLOC.free_256 = bucket->next;
+    } else if (size <= 1024) {
+        if (GLOBAL_ALLOC.free_1024 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_1024 = free_buckets_format_unused(unformatted, 1024, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_1024;
+        GLOBAL_ALLOC.free_1024 = bucket->next;
+    } else if (size <= 4096) {
+        if (GLOBAL_ALLOC.free_4096 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_4096 = free_buckets_format_unused(unformatted, 4096, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_4096;
+        GLOBAL_ALLOC.free_4096 = bucket->next;
+    } else if (size <= 16384) {
+        if (GLOBAL_ALLOC.free_16384 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_16384 = free_buckets_format_unused(unformatted, 16384, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_16384;
+        GLOBAL_ALLOC.free_16384 = bucket->next;
+    } else if (size <= 65536) {
+        if (GLOBAL_ALLOC.free_65536 == NULL) {
+            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            if (unformatted == NULL)
+                return NULL;
+            GLOBAL_ALLOC.free_65536 = free_buckets_format_unused(unformatted, 65536, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+        }
+
+        bucket = GLOBAL_ALLOC.free_65536;
+        GLOBAL_ALLOC.free_65536 = bucket->next;
+    } else {
+        size_t page_count = (size + sizeof(struct s_free_bucket) + PAGE_SIZE - 1) / PAGE_SIZE;
+        bucket = kalloc_pages(page_count);
+        if (bucket == NULL)
+            return NULL;
+        bucket->size = size;
+    }
+
+    if (bucket == NULL)
+        return NULL;
+
+    bucket->origin = origin;
+    bucket->next = GLOBAL_ALLOC.used;
+    if (GLOBAL_ALLOC.used != NULL) {
+        GLOBAL_ALLOC.used->prev = bucket;
+    }
+    GLOBAL_ALLOC.used = bucket;
+    bucket->prev = NULL;
+    return bucket + 1;
+}
+
+void* malloc(size_t size) {
+    uint64_t origin;
+    //asm volatile("ld %0, 8(fp)" : "=r" (origin));
+    asm volatile("mv %0, ra" : "=r" (origin));
+    return free_buckets_alloc(size, origin);
+}
+
+void free(void* p) {
+    if (p == NULL)
+        return;
+
+    struct s_free_bucket* bucket = p;
+    bucket--;
+
+    if (bucket->prev != NULL)
+        bucket->prev->next = bucket->next;
+    if (bucket->next != NULL)
+        bucket->next->prev = bucket->prev;
+    if (bucket == GLOBAL_ALLOC.used)
+        GLOBAL_ALLOC.used = GLOBAL_ALLOC.used->next;
+    bucket->prev = NULL;
+    bucket->next = NULL;
+
+    if (bucket->size <= 16) {
+        GLOBAL_ALLOC.free_16->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_16;
+        GLOBAL_ALLOC.free_16 = bucket;
+    } else if (bucket->size <= 64) {
+        GLOBAL_ALLOC.free_64->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_64;
+        GLOBAL_ALLOC.free_64 = bucket;
+    } else if (bucket->size <= 256) {
+        GLOBAL_ALLOC.free_256->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_256;
+        GLOBAL_ALLOC.free_256 = bucket;
+    } else if (bucket->size <= 1024) {
+        GLOBAL_ALLOC.free_1024->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_1024;
+        GLOBAL_ALLOC.free_1024 = bucket;
+    } else if (bucket->size <= 4096) {
+        GLOBAL_ALLOC.free_4096->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_4096;
+        GLOBAL_ALLOC.free_4096 = bucket;
+    } else if (bucket->size <= 16384) {
+        GLOBAL_ALLOC.free_16384->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_16384;
+        GLOBAL_ALLOC.free_16384 = bucket;
+    } else if (bucket->size <= 65536) {
+        GLOBAL_ALLOC.free_65536->prev = bucket;
+        bucket->next = GLOBAL_ALLOC.free_65536;
+        GLOBAL_ALLOC.free_65536 = bucket;
+    } else {
+        dealloc_pages(bucket, (bucket->size + sizeof(struct s_free_bucket) + PAGE_SIZE - 1) / PAGE_SIZE);
+    }
+}
+
+void* realloc(void* p, size_t new_size) {
+    if (p == NULL)
+        return NULL;
+
+    struct s_free_bucket* bucket = p;
+    bucket--;
+
+    if (bucket->size >= new_size)
+        return p;
+
+    uint64_t origin;
+    asm volatile("mv %0, ra" : "=r" (origin));
+    void* new = free_buckets_alloc(new_size, origin);
+    if (new == NULL)
+        return NULL;
+    memcpy(new, p, bucket->size);
+    free(p);
+    return new;
+}
+
+// debug_free_buckets_alloc(free_buckets_alloc_t*) -> void
+// Prints out the used buckets.
+void debug_free_buckets_alloc() {
+    console_puts("Starting debug\n");
+    struct s_free_bucket const* bucket = GLOBAL_ALLOC.used;
+    while (bucket != NULL) {
+        console_printf("Unfreed allocation originating from 0x%lx (%lu bytes)\n", bucket->origin, bucket->size);
+        bucket = bucket->next;
+    }
+    console_puts("Ending debug\n");
 }
 
 // memcpy(void*, const void*, unsigned long int) -> void*

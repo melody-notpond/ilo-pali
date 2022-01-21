@@ -61,7 +61,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
         uint64_t page_count = (program_header->memory_size + PAGE_SIZE - 1) / PAGE_SIZE;
         for (uint64_t i = 0; i < page_count; i++) {
             void* virtual = (void*) program_header->virtual_addr + i * PAGE_SIZE;
-            void* page = mmu_alloc(top, virtual, flags | MMU_BIT_USER);
+            void* page = kernel_space_phys2virtual(mmu_alloc(top, virtual, flags | MMU_BIT_USER));
 
             if ((page_t*) virtual > max_page)
                 max_page = virtual;
@@ -105,17 +105,10 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].state = PROCESS_STATE_WAIT;
 
     processes[pid].message_queue = malloc(PROCESS_MESSAGE_QUEUE_SIZE * sizeof(process_message_t));
-    mmu_map(top, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
     processes[pid].message_queue_start = 0;
     processes[pid].message_queue_end = 0;
     processes[pid].message_queue_len = 0;
     processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
-
-    if (top != get_mmu()) {
-        mmu_level_1_t* current = get_mmu();
-        remove_mmu_from_mmu(current, processes[pid].mmu_data);
-        mmu_remove(current, processes[pid].message_queue);
-    }
     return pid;
 }
 
@@ -164,17 +157,10 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     processes[pid].state = PROCESS_STATE_WAIT;
 
     processes[pid].message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE);
-    mmu_map(parent->mmu_data, processes[pid].message_queue, processes[pid].message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
     processes[pid].message_queue_start = 0;
     processes[pid].message_queue_end = 0;
     processes[pid].message_queue_len = 0;
     processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
-
-    if (parent->mmu_data != get_mmu()) {
-        mmu_level_1_t* current = get_mmu();
-        remove_mmu_from_mmu(current, parent->mmu_data);
-        mmu_remove(current, processes[pid].message_queue);
-    }
     return pid;
 }
 
@@ -275,10 +261,10 @@ void kill_process(pid_t pid) {
     if (processes[pid].state == PROCESS_STATE_DEAD)
         return;
 
+    free(processes[pid].message_queue);
     if (processes[pid].mmu_data == get_mmu())
         set_mmu(processes[0].mmu_data);
 
-    free(processes[pid].message_queue);
     clean_mmu_table(processes[pid].mmu_data);
     processes[pid].state = PROCESS_STATE_DEAD;
 }
@@ -290,17 +276,11 @@ bool enqueue_message_to_process(pid_t recipient, process_message_t message) {
     if (process == NULL || process->message_queue_len >= process->message_queue_cap)
         return false;
 
-    mmu_level_1_t* current = get_mmu();
-    if (current != process->mmu_data)
-        mmu_map(current, process->message_queue, process->message_queue, MMU_BIT_READ | MMU_BIT_WRITE);
-
     process->message_queue[process->message_queue_end] = message;
     process->message_queue_end++;
     if (process->message_queue_end >= process->message_queue_cap)
         process->message_queue_end = 0;
     process->message_queue_len++;
-    if (current != process->mmu_data)
-        mmu_remove(current, process->message_queue);
     return true;
 }
 

@@ -453,7 +453,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 }
 
                                 mmu_level_1_t* current = get_mmu();
-                                mmu_map_mmu(current, sender->mmu_data);
                                 process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                                 for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     void* virtual = (void*) message.data - message.data % PAGE_SIZE + i * PAGE_SIZE;
@@ -467,7 +466,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                                 if (data != NULL)
                                     *data = (uint64_t) page_holder->last_virtual_page + message.data % PAGE_SIZE;
-                                remove_mmu_from_mmu(current, sender->mmu_data);
                                 page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
                             } else if (message.type != 0 && message.type != 1)
                                 console_printf("[interrupt_handler] warning: unknown message type 0x%x\n", *type);

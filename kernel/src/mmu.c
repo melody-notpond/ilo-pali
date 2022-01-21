@@ -2,6 +2,20 @@
 #include "mmu.h"
 #include <stdbool.h>
 
+#define KERNEL_SPACE_OFFSET 0xffffffc000000000
+
+// kernel_space_virt2physical(void*) -> void*
+// Converts a kernel space virtual address into a physical address.
+void* kernel_space_virt2physical(void* virtual) {
+    return virtual - KERNEL_SPACE_OFFSET;
+}
+
+// kernel_space_phys2virtual(void*) -> void*
+// Converts a physical address into a kernel space virtual address.
+void* kernel_space_phys2virtual(void* physical) {
+    return physical + KERNEL_SPACE_OFFSET;
+}
+
 // get_mmu() -> mmu_level_1_t*
 // Gets the current value of satp and converts it into a pointer to the mmu table.
 mmu_level_1_t* get_mmu() {
@@ -19,10 +33,15 @@ mmu_level_1_t* get_mmu() {
 void set_mmu(mmu_level_1_t* top) {
     if (top) {
         mmu_level_1_t* current = get_mmu();
-        if (current) {
-            for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+        if (current && current != top) {
+            top = kernel_space_phys2virtual(top);
+            current = kernel_space_phys2virtual(current);
+
+            for (size_t i = PAGE_SIZE / 2 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
                 top[i] = current[i];
             }
+
+            top = kernel_space_virt2physical(top);
         }
 
         uint64_t mmu = 0x8000000000000000 | ((intptr_t) top >> 12);
@@ -48,12 +67,15 @@ mmu_level_1_t* create_mmu_table() {
     mmu_level_1_t* current = get_mmu();
 
     if (current != NULL) {
-        for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+        top = kernel_space_phys2virtual(top);
+        current = kernel_space_phys2virtual(current);
+        for (size_t i = PAGE_SIZE / 2 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
             top[i] = current[i];
         }
+        top = kernel_space_virt2physical(top);
     } else {
-        for (size_t i = PAGE_SIZE * 3 / 4 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
-            top[i] = MMU_BIT_GLOBAL | MMU_BIT_VALID;
+        for (size_t i = PAGE_SIZE / 2 / sizeof(void*); i < PAGE_SIZE / sizeof(void*); i++) {
+            top[i] = (i - PAGE_SIZE / 2 / sizeof(void*)) << 28 | MMU_BIT_GLOBAL | MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_VALID;
         }
     }
 
@@ -66,27 +88,30 @@ void mmu_map(mmu_level_1_t* top, void* virtual, void* physical, int flags) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
-    bool diff = get_mmu() != NULL && top != get_mmu();
+    bool mmu_enabled = get_mmu() != NULL;
 
-    if (!MMU_UNWRAP(2, top[vpn2])) {
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
+
+    if (!(top[vpn2] & MMU_BIT_VALID)) {
         void* page = alloc_pages(1);
         top[vpn2] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
-        if (diff)
-            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+    if (mmu_enabled)
+        level2 = kernel_space_phys2virtual(level2);
 
-    if (!MMU_UNWRAP(3, level2[vpn1])) {
+    if (!(level2[vpn1] & MMU_BIT_VALID)) {
         void* page = alloc_pages(1);
         level2[vpn1] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
-        if (diff)
-            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+    if (mmu_enabled)
+        level3 = kernel_space_phys2virtual(level3);
 
-    if (!MMU_UNWRAP(4, level3[vpn0])) {
+    if (!(level3[vpn0] & MMU_BIT_VALID)) {
         level3[vpn0] = ((intptr_t) physical & ~0x03) >> 2 | flags | MMU_BIT_VALID;
     }
 }
@@ -97,27 +122,29 @@ void* mmu_alloc(mmu_level_1_t* top, void* virtual, int flags) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
-    bool diff = top != get_mmu();
+    bool mmu_enabled = get_mmu() != NULL;
 
-    if (!MMU_UNWRAP(2, top[vpn2])) {
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
+    if (!(top[vpn2] & MMU_BIT_VALID)) {
         void* page = alloc_pages(1);
         top[vpn2] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
-        if (diff)
-            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+    if (mmu_enabled)
+        level2 = kernel_space_phys2virtual(level2);
 
-    if (!MMU_UNWRAP(3, level2[vpn1])) {
+    if (!(level2[vpn1] & MMU_BIT_VALID)) {
         void* page = alloc_pages(1);
         level2[vpn1] = ((intptr_t) page) >> 2 | MMU_BIT_VALID;
-        if (diff)
-            mmu_map(top, page, page, MMU_BIT_READ | MMU_BIT_WRITE);
     }
 
     mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+    if (mmu_enabled)
+        level3 = kernel_space_phys2virtual(level3);
 
-    if (!MMU_UNWRAP(4, level3[vpn0])) {
+    if (!(level3[vpn0] & MMU_BIT_VALID)) {
         void* physical = alloc_pages(1);
         level3[vpn0] = ((intptr_t) physical & ~0x03) >> 2 | flags | MMU_BIT_VALID;
         return physical;
@@ -132,14 +159,22 @@ void mmu_change_flags(mmu_level_1_t* top, void* virtual, int flags) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+    bool mmu_enabled = get_mmu() != NULL;
 
-    if (MMU_UNWRAP(2, top[vpn2])) {
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
+
+    if (top[vpn2] & MMU_BIT_VALID) {
         mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+        if (mmu_enabled)
+            level2 = kernel_space_phys2virtual(level2);
 
-        if (MMU_UNWRAP(3, level2[vpn1])) {
+        if (level2[vpn1] & MMU_BIT_VALID) {
             mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+            if (mmu_enabled)
+                level3 = kernel_space_phys2virtual(level3);
 
-            if (MMU_UNWRAP(4, level3[vpn0])) {
+            if (level3[vpn0] & MMU_BIT_VALID) {
                 level3[vpn0] = (level3[vpn0] & ~0x3ff) | flags | MMU_BIT_VALID;
             }
         }
@@ -152,12 +187,20 @@ intptr_t mmu_walk(mmu_level_1_t* top, void* virtual) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+    bool mmu_enabled = get_mmu() != NULL;
+
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
 
     if (MMU_UNWRAP(2, top[vpn2])) {
         mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+        if (mmu_enabled)
+            level2 = kernel_space_phys2virtual(level2);
 
         if (MMU_UNWRAP(3, level2[vpn1])) {
             mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+            if (mmu_enabled)
+                level3 = kernel_space_phys2virtual(level3);
             return level3[vpn0];
         }
     }
@@ -186,69 +229,6 @@ void* mmu_remove(mmu_level_1_t* top, void* virtual) {
     return NULL;
 }
 
-// mmu_kalloc(mmu_level_1_t*, void*, size_t)
-// Allocates pages in the top quarter of the mmu table.
-void* mmu_kalloc(mmu_level_1_t* top, void* physical, size_t count) {
-    size_t i;
-    for (i = PAGE_SIZE - sizeof(void*); i >= PAGE_SIZE * 3 / 4; i -= sizeof(void*)) {
-        if (MMU_UNWRAP(2, top[i / sizeof(void*)]))
-            break;
-    }
-
-    if (i < PAGE_SIZE * 3 / 4)
-        i = PAGE_SIZE * 3 / 4;
-    else if (i == PAGE_SIZE - sizeof(void*))
-        return NULL;
-
-    size_t j = 0;
-    size_t k = 0;
-    uint64_t virtual = 0;
-    for (; i < PAGE_SIZE; i += sizeof(void*)) {
-        mmu_level_2_t* level2 = MMU_UNWRAP(2, top[i / sizeof(void*)]);
-
-        if (level2 == NULL) {
-            virtual = (uint64_t) ((uint64_t) i / (uint64_t) sizeof(void*)) << (uint64_t) 30;
-            console_printf("%lx, %lx\n", i, virtual);
-            break;
-        }
-
-        for (; j < PAGE_SIZE; j += sizeof(void*)) {
-            mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[j / sizeof(void*)]);
-
-            if (level3 == NULL) {
-                virtual = i / sizeof(void*) << 30 | j / sizeof(void*) << 21;
-                break;
-            }
-
-            for (; k < PAGE_SIZE; k += sizeof(void*)) {
-                mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[k / sizeof(void*)]);
-
-                if (level4 == NULL) {
-                    virtual = i / sizeof(void*) << 30 | j / sizeof(void*) << 21 | k / sizeof(void*) << 12;
-                    break;
-                }
-            }
-
-            if (virtual)
-                break;
-            k = 0;
-        }
-
-        if (virtual)
-            break;
-        j = 0;
-    }
-
-    if (virtual == 0)
-        return NULL;
-
-    for (size_t i = 0; i < count; i++) {
-        mmu_map(top, (void*) virtual + i * PAGE_SIZE, physical + i * PAGE_SIZE, MMU_BIT_GLOBAL | MMU_BIT_READ | MMU_BIT_WRITE);
-    }
-
-    return (void*) virtual;
-}
-
 // mmu_map_range_identity(mmu_level_1_t*, void*, void*, int) -> void
 // Maps the given range to itself in the given mmu table.
 void mmu_map_range_identity(mmu_level_1_t* top, void* start, void* end, int flags) {
@@ -264,6 +244,7 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
     extern int data_start;
     extern int ro_data_start;
     extern int sdata_start;
+    extern int sdata_end;
     extern int stack_start;
     extern int stack_top;
     extern int pages_bottom;
@@ -273,7 +254,7 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
     mmu_map_range_identity(top, &text_start, &data_start, MMU_BIT_READ | MMU_BIT_EXECUTE | MMU_BIT_GLOBAL);
     mmu_map_range_identity(top, &data_start, &ro_data_start, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
     mmu_map_range_identity(top, &ro_data_start, &sdata_start, MMU_BIT_READ | MMU_BIT_GLOBAL);
-    mmu_map_range_identity(top, &sdata_start, &stack_start, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
+    mmu_map_range_identity(top, &sdata_start, &sdata_end, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
     mmu_map_range_identity(top, &stack_start, &stack_top, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
     mmu_map_range_identity(top, &pages_bottom, heap_bottom, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
 
@@ -284,29 +265,6 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
     // Map initrd
     if (initrd_start != initrd_end && initrd_start != NULL && initrd_end != NULL)
         mmu_map_range_identity(top, initrd_start, initrd_end, MMU_BIT_READ);
-
-    // Map mmu table
-    mmu_map(top, top, top, MMU_BIT_READ | MMU_BIT_WRITE);
-    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-        mmu_level_2_t* level2 = MMU_UNWRAP(2, top[i]);
-
-        if (level2) {
-            mmu_map(top, level2, level2, MMU_BIT_READ | MMU_BIT_WRITE);
-            for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                mmu_level_2_t* level3 = MMU_UNWRAP(2, level2[i]);
-
-                if (level3) {
-                    mmu_map(top, level3, level3, MMU_BIT_READ | MMU_BIT_WRITE);
-                    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                        mmu_level_2_t* level4 = MMU_UNWRAP(2, level3[i]);
-
-                        if (level4)
-                            mmu_map(top, level4, level4, MMU_BIT_READ | MMU_BIT_WRITE);
-                    }
-                }
-            }
-        }
-    }
 }
 
 // remove_unused_entries(mmu_level_1_t*) -> void
@@ -346,84 +304,40 @@ void remove_unused_entries(mmu_level_1_t* top) {
     }
 }
 
-// mmu_map_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
-// Maps an mmu into an mmu. (more mmu-ception :florshed:)
-void mmu_map_mmu(mmu_level_1_t* top, mmu_level_1_t* entry) {
-    mmu_map(top, entry, entry, MMU_BIT_READ | MMU_BIT_WRITE);
-    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-        mmu_level_2_t* level2 = MMU_UNWRAP(2, entry[i]);
-        if (level2) {
-            mmu_map(top, level2, level2, MMU_BIT_READ | MMU_BIT_WRITE);
-            for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
-                if (level3) {
-                    mmu_map(top, level3, level3, MMU_BIT_READ | MMU_BIT_WRITE);
-                    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
-                        if (level4)
-                            mmu_map(top, level4, level4, MMU_BIT_READ | MMU_BIT_WRITE);
-                    }
-                }
-            }
-        }
-    }
-}
-
-// remove_mmu_from_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
-// Removes an mmu table from an mmu table. (mmu-ception moment)
-void remove_mmu_from_mmu(mmu_level_1_t* top, mmu_level_1_t* entry) {
-    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-        mmu_level_2_t* level2 = MMU_UNWRAP(2, entry[i]);
-        if (level2) {
-            for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
-                if (level3) {
-                    for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
-                        mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
-                        if (level4 && (level3[i] & MMU_BIT_GLOBAL) == 0)
-                            mmu_remove(top, level4);
-                    }
-
-                    mmu_remove(top, level3);
-                }
-            }
-
-            mmu_remove(top, level2);
-        }
-    }
-
-    mmu_remove(top, entry);
-    remove_unused_entries(top);
-}
-
 // clean_mmu_table(mmu_level_1_t*) -> void
 // Cleans up an mmu table.
 void clean_mmu_table(mmu_level_1_t* top) {
-    mmu_level_1_t* current = get_mmu();
-    mmu_map(current, top, top, MMU_BIT_READ | MMU_BIT_WRITE);
+    bool mmu_enabled = get_mmu() != NULL;
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
 
     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
         mmu_level_2_t* level2 = MMU_UNWRAP(2, top[i]);
-        mmu_map(current, level2, level2, MMU_BIT_READ | MMU_BIT_WRITE);
-        if (level2) {
+
+        if (level2 && (top[i] & MMU_BIT_GLOBAL) == 0) {
+            if (mmu_enabled)
+                level2 = kernel_space_phys2virtual(level2);
+
             for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
                 mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[i]);
-                mmu_map(current, level3, level3, MMU_BIT_READ | MMU_BIT_WRITE);
-                if (level3) {
+
+                if (level3 && (level2[i] & MMU_BIT_GLOBAL) == 0) {
+                    if (mmu_enabled)
+                        level3 = kernel_space_phys2virtual(level3);
+
                     for (size_t i = 0; i < PAGE_SIZE / sizeof(void*); i++) {
                         mmu_level_4_t* level4 = MMU_UNWRAP(4, level3[i]);
                         if (level4 && (level3[i] & MMU_BIT_GLOBAL) == 0)
                             dealloc_pages(level4, 1);
                     }
 
-                    dealloc_pages(mmu_remove(current, level3), 1);
+                    dealloc_pages(kernel_space_virt2physical(level3), 1);
                 }
             }
 
-            dealloc_pages(mmu_remove(current, level2), 1);
+            dealloc_pages(kernel_space_virt2physical(level2), 1);
         }
     }
 
-    dealloc_pages(mmu_remove(current, top), 1);
-    remove_unused_entries(current);
+    dealloc_pages(kernel_space_virt2physical(top), 1);
 }

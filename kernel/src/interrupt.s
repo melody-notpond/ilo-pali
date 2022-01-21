@@ -55,7 +55,7 @@ handle_interrupt:
     sd t5, 0x010(t6)
 
     # Set sp
-    ld sp,  0x018(t6)
+    ld sp, 0x018(t6)
 
     # Call interrupt handler
     csrr a0, scause

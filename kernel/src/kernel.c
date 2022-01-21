@@ -22,7 +22,6 @@ void kinit(uint64_t hartid, void* fdt) {
     asm volatile("csrw sscratch, %0" : "=r" (current_trap));
 
     console_printf("[kinit] toki, ale o!\n[kinit] hartid: %lx\n[kinit] fdt pointer: %p\n", hartid, fdt);
-    console_printf("%llx\n", ((unsigned long long) 1) << (unsigned long long) 32);
 
     fdt_t devicetree = verify_fdt(fdt);
     if (devicetree.header == NULL) {

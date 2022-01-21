@@ -22,6 +22,14 @@ typedef intptr_t mmu_level_2_t;
 typedef intptr_t mmu_level_3_t;
 typedef intptr_t mmu_level_4_t;
 
+// kernel_space_virt2physical(void*) -> void*
+// Converts a kernel space virtual address into a physical address.
+void* kernel_space_virt2physical(void* virtual_);
+
+// kernel_space_phys2virtual(void*) -> void*
+// Converts a physical address into a kernel space virtual address.
+void* kernel_space_phys2virtual(void* physical);
+
 // get_mmu() -> mmu_level_1_t*
 // Gets the current value of satp and converts it into a pointer to the mmu table.
 mmu_level_1_t* get_mmu();
@@ -62,10 +70,6 @@ intptr_t mmu_walk(mmu_level_1_t* top, void* virtual_);
 // Removes an entry from the mmu table.
 void* mmu_remove(mmu_level_1_t* top, void* virtual_);
 
-// mmu_kalloc(mmu_level_1_t*, void*, size_t)
-// Allocates pages in the top quarter of the mmu table.
-void* mmu_kalloc(mmu_level_1_t* top, void* physical, size_t count);
-
 // identity_map_kernel(fdt_t*, void*, void*) -> void
 // Identity maps the kernel in the given mmu table.
 void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, void* initrd_end);
@@ -73,14 +77,6 @@ void identity_map_kernel(mmu_level_1_t* top, fdt_t* fdt, void* initrd_start, voi
 // remove_unused_entries(mmu_level_1_t*) -> void
 // Removes unused entries from an mmu table.
 void remove_unused_entries(mmu_level_1_t* top);
-
-// mmu_map_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
-// Maps an mmu into an mmu. (more mmu-ception :florshed:)
-void mmu_map_mmu(mmu_level_1_t* top, mmu_level_1_t* entry);
-
-// remove_mmu_from_mmu(mmu_level_1_t*, mmu_level_1_t*) -> void
-// Removes an mmu table from an mmu table. (mmu-ception moment)
-void remove_mmu_from_mmu(mmu_level_1_t* top, mmu_level_1_t* entry);
 
 // clean_mmu_table(mmu_level_1_t*) -> void
 // Cleans up an mmu table.

@@ -1,5 +1,6 @@
 #include "console.h"
 #include "opensbi.h"
+#include <stddef.h>
 
 // console_puts(char*) -> void
 // Prints out a string onto the UART.
@@ -37,10 +38,18 @@ int console_vprintf(const char* format, va_list va) {
                     unsigned long long p = (unsigned long long) va_arg(va, void*);
                     sbi_console_putchar('0');
                     sbi_console_putchar('x');
-                    for (unsigned long long i = 15 * 4; i; i -= 4) {
-                        sbi_console_putchar("0123456789abcdef"[((p & (0xf << i)) >> i) & 0xf]);
+                    static const size_t buffer_size = 16;
+                    char buffer[buffer_size];
+                    size_t len = 0;
+                    while (p != 0) {
+                        len++;
+                        buffer[buffer_size - len] = "0123456789abcdef"[p % 16];
+                        p /= 16;
                     }
-                    sbi_console_putchar("0123456789abcdef"[p & 0xf]);
+
+                    for (size_t i = buffer_size - len; i < buffer_size; i++) {
+                        sbi_console_putchar(buffer[i]);
+                    }
                     break;
                 }
 
@@ -93,14 +102,24 @@ console_printf_fallthrough: {
                             break;
                     }
 
-                    char writing = 0;
-                    for (unsigned long long i = 15 * 4; i; i -= 4) {
-                        unsigned long long c = ((x & (0xf << i)) >> i) & 0xf;
-                        writing = writing || c != 0;
-                        if (writing)
-                            sbi_console_putchar("0123456789abcdef"[c]);
+                    if (x == 0) {
+                        sbi_console_putchar('0');
+                        break;
                     }
-                    sbi_console_putchar("0123456789abcdef"[x & 0xf]);
+
+                    static const size_t buffer_size = 16;
+                    char buffer[buffer_size];
+                    size_t len = 0;
+                    while (x != 0) {
+                        len++;
+                        buffer[buffer_size - len] = "0123456789abcdef"[x % 16];
+                        x /= 16;
+                    }
+
+                    for (size_t i = buffer_size - len; i < buffer_size; i++) {
+                        sbi_console_putchar(buffer[i]);
+                    }
+
                     break;
                 }
 

@@ -93,9 +93,7 @@ void* alloc_pages(size_t count) {
 
                 mmu_level_1_t* top = get_mmu();
                 if (top) {
-                    for (size_t i = 0; i < count; i++) {
-                        mmu_map(top, page + i, page + i, MMU_BIT_READ | MMU_BIT_WRITE);
-                    }
+                    page = kernel_space_phys2virtual(page);
                 } else {
                     // hehe bottom
                 }
@@ -104,6 +102,8 @@ void* alloc_pages(size_t count) {
                     *q = 0;
                 }
 
+                if (top)
+                    return kernel_space_virt2physical(page);
                 return page;
             }
         }
@@ -111,20 +111,6 @@ void* alloc_pages(size_t count) {
 
     console_printf("[alloc_pages] unable to allocate %lx pages\n", count);
     return NULL;
-}
-
-// kalloc_pages(size_t) -> void*
-// Allocates the given number of pages, mapping them to the top quarter of the page entries.
-void* kalloc_pages(size_t count) {
-    void* p = alloc_pages(count);
-    if (p == NULL)
-        return NULL;
-
-    mmu_level_1_t* top = get_mmu();
-    if (top == NULL)
-        return NULL;
-
-    return mmu_kalloc(top, p, count);
 }
 
 // incr_page_ref_count(void*, size_t) -> void
@@ -180,13 +166,6 @@ static free_buckets_alloc_t GLOBAL_ALLOC = { 0 };
 static const size_t GLOBAL_ALLOC_FALLBACK_PAGE_COUNT = 65;
 
 struct s_free_bucket* free_buckets_format_unused(void* data, size_t bucket_size, size_t total_size) {
-    mmu_level_1_t* top = get_mmu();
-    if (top != NULL) {
-        for (size_t i = 0; i < GLOBAL_ALLOC_FALLBACK_PAGE_COUNT; i++) {
-            mmu_change_flags(top, data + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_GLOBAL);
-        }
-    }
-
     size_t size = sizeof(struct s_free_bucket) + bucket_size;
     for (size_t i = 0; i + size < total_size; i += size) {
         struct s_free_bucket* bucket = data + i;
@@ -205,7 +184,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     struct s_free_bucket* bucket = NULL;
     if (size <= 16) {
         if (GLOBAL_ALLOC.free_16 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_16 = free_buckets_format_unused(unformatted, 16, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -215,7 +194,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_16 = bucket->next;
     } else if (size <= 64) {
         if (GLOBAL_ALLOC.free_64 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_64 = free_buckets_format_unused(unformatted, 64, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -225,7 +204,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_64 = bucket->next;
     } else if (size <= 256) {
         if (GLOBAL_ALLOC.free_256 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_256 = free_buckets_format_unused(unformatted, 256, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -235,7 +214,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_256 = bucket->next;
     } else if (size <= 1024) {
         if (GLOBAL_ALLOC.free_1024 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_1024 = free_buckets_format_unused(unformatted, 1024, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -245,7 +224,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_1024 = bucket->next;
     } else if (size <= 4096) {
         if (GLOBAL_ALLOC.free_4096 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_4096 = free_buckets_format_unused(unformatted, 4096, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -255,7 +234,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_4096 = bucket->next;
     } else if (size <= 16384) {
         if (GLOBAL_ALLOC.free_16384 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_16384 = free_buckets_format_unused(unformatted, 16384, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -265,7 +244,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_16384 = bucket->next;
     } else if (size <= 65536) {
         if (GLOBAL_ALLOC.free_65536 == NULL) {
-            void* unformatted = kalloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
+            void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
             if (unformatted == NULL)
                 return NULL;
             GLOBAL_ALLOC.free_65536 = free_buckets_format_unused(unformatted, 65536, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
@@ -275,7 +254,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
         GLOBAL_ALLOC.free_65536 = bucket->next;
     } else {
         size_t page_count = (size + sizeof(struct s_free_bucket) + PAGE_SIZE - 1) / PAGE_SIZE;
-        bucket = kalloc_pages(page_count);
+        bucket = kernel_space_phys2virtual(alloc_pages(page_count));
         if (bucket == NULL)
             return NULL;
         bucket->size = size;
@@ -318,31 +297,38 @@ void free(void* p) {
     bucket->next = NULL;
 
     if (bucket->size <= 16) {
-        GLOBAL_ALLOC.free_16->prev = bucket;
+        if (GLOBAL_ALLOC.free_16)
+            GLOBAL_ALLOC.free_16->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_16;
         GLOBAL_ALLOC.free_16 = bucket;
     } else if (bucket->size <= 64) {
-        GLOBAL_ALLOC.free_64->prev = bucket;
+        if (GLOBAL_ALLOC.free_64)
+            GLOBAL_ALLOC.free_64->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_64;
         GLOBAL_ALLOC.free_64 = bucket;
     } else if (bucket->size <= 256) {
-        GLOBAL_ALLOC.free_256->prev = bucket;
+        if (GLOBAL_ALLOC.free_256)
+            GLOBAL_ALLOC.free_256->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_256;
         GLOBAL_ALLOC.free_256 = bucket;
     } else if (bucket->size <= 1024) {
-        GLOBAL_ALLOC.free_1024->prev = bucket;
+        if (GLOBAL_ALLOC.free_1024)
+            GLOBAL_ALLOC.free_1024->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_1024;
         GLOBAL_ALLOC.free_1024 = bucket;
     } else if (bucket->size <= 4096) {
-        GLOBAL_ALLOC.free_4096->prev = bucket;
+        if (GLOBAL_ALLOC.free_4096)
+            GLOBAL_ALLOC.free_4096->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_4096;
         GLOBAL_ALLOC.free_4096 = bucket;
     } else if (bucket->size <= 16384) {
-        GLOBAL_ALLOC.free_16384->prev = bucket;
+        if (GLOBAL_ALLOC.free_16384)
+            GLOBAL_ALLOC.free_16384->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_16384;
         GLOBAL_ALLOC.free_16384 = bucket;
     } else if (bucket->size <= 65536) {
-        GLOBAL_ALLOC.free_65536->prev = bucket;
+        if (GLOBAL_ALLOC.free_65536)
+            GLOBAL_ALLOC.free_65536->prev = bucket;
         bucket->next = GLOBAL_ALLOC.free_65536;
         GLOBAL_ALLOC.free_65536 = bucket;
     } else {

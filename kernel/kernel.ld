@@ -23,12 +23,13 @@ SECTIONS
     PROVIDE(sdata_start = .);
     .sdata : { *(.sdata) }
     .debug : { *(.debug) }
+    PROVIDE(sdata_end = .);
 
     . += 0x1000;
 
     . = ALIGN(4096);
     PROVIDE(stack_start = .);
-    . += 0x4000;
+    . += 0x8000;
     PROVIDE(stack_top = .);
 
     /* Pages */

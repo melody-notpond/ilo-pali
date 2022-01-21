@@ -26,10 +26,6 @@ void mark_as_used(void* page, size_t size);
 // Allocates a number of pages.
 void* alloc_pages(size_t count);
 
-// kalloc_pages(size_t) -> void*
-// Allocates the given number of pages, mapping them to the top quarter of the page entries.
-void* kalloc_pages(size_t count);
-
 // incr_page_ref_count(void*, size_t) -> void
 // Increments the reference count of the selected pages.
 void incr_page_ref_count(void* page, size_t count);

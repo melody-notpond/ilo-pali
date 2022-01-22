@@ -113,6 +113,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t count = trap->xs[REGISTER_A2];
                         int perms = trap->xs[REGISTER_A3];
                         int flags = 0;
+                        process_t* process = get_process(trap->pid);
 
                         if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
                             trap->xs[REGISTER_A0] = 0;
@@ -127,7 +128,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             flags |= MMU_BIT_READ;
 
                         if (addr == NULL) {
-                            process_t* process = get_process(trap->pid);
                             process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                             addr = page_holder->last_virtual_page;
 
@@ -148,12 +148,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 page_holder->last_virtual_page += PAGE_SIZE;
                             }
                             trap->xs[REGISTER_A0] = (uint64_t) addr;
-                        } else if (trap->pid == 0) {
+                        } else if (trap->pid == 0 || process->thread_source == 0) {
                             if (addr < get_memory_start()) {
-                                process_t* process = get_process(trap->pid);
-                                mmu_map(process->mmu_data, process->last_virtual_page, addr, flags | MMU_BIT_USER);
-                                trap->xs[REGISTER_A0] = (uint64_t) process->last_virtual_page;
-                                process->last_virtual_page += PAGE_SIZE;
+                                process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                                for (size_t i = 0; i < count; i++) {
+                                    mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
+                                }
+                                trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page;
+                                page_holder->last_virtual_page += PAGE_SIZE * count;
                             } else trap->xs[REGISTER_A0] = 0;
                         } else trap->xs[REGISTER_A0] = 0;
 
@@ -307,7 +309,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (capability != NULL) {
                             capability_t b;
-                            create_capability(trap->pid, capability, pid, &b);
+                            create_capability(capability, &b);
                             get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
                             get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
                         }
@@ -631,6 +633,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
+                        break;
                 }
                 break;
 

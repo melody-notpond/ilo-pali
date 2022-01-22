@@ -71,9 +71,9 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
 // Spawns a thread from the given process. Returns -1 on failure.
 pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
 
-// create_capability(pid_t, capability_t*, pid_t, capability_t*) -> void
+// create_capability(capability_t*, capability_t*) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
-void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b);
+void create_capability(capability_t* a, capability_t* b);
 
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.

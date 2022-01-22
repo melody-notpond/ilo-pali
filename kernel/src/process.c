@@ -87,8 +87,8 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
 
     if (args != NULL && arg_size != 0) {
         for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1); i += PAGE_SIZE) {
-            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
-            memcpy(physical, args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
+            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            memcpy(kernel_space_phys2virtual(physical), args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
         }
 
         processes[pid].xs[REGISTER_A0] = (uint64_t) processes[pid].last_virtual_page;
@@ -117,6 +117,8 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
         return -1;
     if (parent->thread_source != (uint64_t) -1)
         parent = get_process(parent->thread_source);
+    if (parent == NULL)
+        return -1;
 
     pid_t pid = -1;
     if (current_pid < MAX_PID) {
@@ -134,7 +136,7 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     }
 
     processes[pid].mmu_data = parent->mmu_data;
-    processes[pid].thread_source = parent_pid;
+    processes[pid].thread_source = parent->pid;
     processes[pid].user = parent->user;
 
     for (size_t i = 1; i <= stack_size; i++) {
@@ -149,15 +151,14 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     processes[pid].xs[REGISTER_A1] = arg_size;
 
     processes[pid].pid = pid;
-    processes[pid].thread_source = -1;
     processes[pid].pc = (uint64_t) func;
     processes[pid].state = PROCESS_STATE_WAIT;
     return pid;
 }
 
-// create_capability(pid_t, capability_t*, pid_t, capability_t*) -> void
+// create_capability(capability_t*, capability_t*) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
-void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b) {
+void create_capability(capability_t* a, capability_t* b) {
     *a = 0;
     *b = 0;
     do {
@@ -170,7 +171,7 @@ void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b) {
         .start = 0,
         .end = 0,
         .len = 0,
-        .receiver = pa,
+        .receiver = 0,
     });
 
     do {
@@ -184,7 +185,7 @@ void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b) {
         .end = 0,
         .len = 0,
         .sender = *a,
-        .receiver = pb,
+        .receiver = 0,
     });
 
     ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;
@@ -314,7 +315,8 @@ void kill_process(pid_t pid) {
     if (processes[pid].mmu_data == get_mmu())
         set_mmu(processes[0].mmu_data);
 
-    clean_mmu_table(processes[pid].mmu_data);
+    if (processes[pid].thread_source == (pid_t) -1)
+        clean_mmu_table(processes[pid].mmu_data);
     processes[pid].state = PROCESS_STATE_DEAD;
 }
 
@@ -328,11 +330,11 @@ int enqueue_message_to_channel(capability_t capability, process_message_t messag
     if (channel == NULL)
         return 1;
 
-    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
-        return 2;
-
     if (channel->message_queue == NULL)
         return 3;
+
+    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
+        return 2;
 
     channel->message_queue[channel->end++] = message;
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
@@ -345,14 +347,16 @@ int enqueue_message_to_channel(capability_t capability, process_message_t messag
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL || channel->receiver != pid)
+    if (channel == NULL || (channel->receiver && channel->receiver != pid))
         return 1;
 
-    if (channel->len == 0)
-        return 2;
+    channel->receiver = pid;
 
     if (channel->message_queue == NULL)
         return 3;
+
+    if (channel->len == 0)
+        return 2;
 
     *message = channel->message_queue[channel->start++];
     if (channel->start >= PROCESS_MESSAGE_QUEUE_SIZE)

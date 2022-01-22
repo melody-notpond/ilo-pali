@@ -7,6 +7,26 @@
 #include "fat16.h"
 #include "format.h"
 
+void handle_driver(void* args, size_t _size) {
+    capability_t* capability = (capability_t*) args;
+    alloc_t allocator = *(alloc_t*) (capability + 1);
+    pid_t pid;
+    int type;
+    uint64_t data;
+    uint64_t meta;
+    void* addr;
+    while (!recv(true, capability, &pid, &type, &data, &meta)) {
+        if (type == MSG_TYPE_SIGNAL && data == 1) {
+            addr = (void*) meta;
+        } else if (type == MSG_TYPE_SIGNAL && data == 2) {
+            uint64_t* alloced = alloc_page(addr, meta, PERM_READ | PERM_WRITE);
+            send(true, capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta);
+        }
+    }
+
+    dealloc(&allocator, args);
+}
+
 void _start(void* fdt) {
     uart_printf("initd started\n");
 
@@ -52,19 +72,21 @@ void _start(void* fdt) {
             }
 
             uart_printf("spawning\n");
-            spawn_process(module_elf, module_size, NULL, 0, &cap);
+            uint64_t* p = alloc(&allocator, 2 * sizeof(uint64_t));
+            struct fdt_property reg = fdt_get_property(&tree, node, "reg");
+            p[0] = be_to_le(64, reg.data);
+            p[1] = be_to_le(64, reg.data + 8);
+            spawn_process(module_elf, module_size, p, 2 * sizeof(uint64_t), &cap);
+            dealloc(&allocator, p);
+            capability_t* capability = alloc(&allocator, sizeof(capability_t) + sizeof(alloc_t));
+            *capability = cap;
+            *(alloc_t*) (capability + 1) = allocator;
+            spawn_thread(handle_driver, capability, sizeof(capability_t) + sizeof(alloc_t));
         }
 
         dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);
     }
 
-    while(1) {
-        pid_t pid;
-        int type;
-        uint64_t data;
-        uint64_t meta;
-        recv(true, &cap, &pid, &type, &data, &meta);
-        uart_printf("pid, type, data, meta = %x, %x, %x, %x", pid, type, data, meta);
-    }
+    while(1);
 }
 

@@ -214,12 +214,19 @@ void* mmu_remove(mmu_level_1_t* top, void* virtual) {
     intptr_t vpn2 = ((intptr_t) virtual >> 30) & 0x1ff;
     intptr_t vpn1 = ((intptr_t) virtual >> 21) & 0x1ff;
     intptr_t vpn0 = ((intptr_t) virtual >> 12) & 0x1ff;
+    bool mmu_enabled = get_mmu() != NULL;
 
+    if (mmu_enabled)
+        top = kernel_space_phys2virtual(top);
     if (MMU_UNWRAP(2, top[vpn2])) {
         mmu_level_2_t* level2 = MMU_UNWRAP(2, top[vpn2]);
+        if (mmu_enabled)
+            level2 = kernel_space_phys2virtual(level2);
 
         if (MMU_UNWRAP(3, level2[vpn1])) {
             mmu_level_3_t* level3 = MMU_UNWRAP(3, level2[vpn1]);
+            if (mmu_enabled)
+                level3 = kernel_space_phys2virtual(level3);
             void* physical = MMU_UNWRAP(4, level3[vpn0]);
             level3[vpn0] = 0;
             return physical;

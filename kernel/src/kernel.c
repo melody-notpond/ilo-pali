@@ -49,6 +49,8 @@ void kinit(uint64_t hartid, void* fdt) {
 
     console_printf("[kinit] initrd start: %p\n[kinit] initrd end: %p\n", initrd_start, initrd_end);
 
+    init_interrupts(&devicetree);
+
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     if (fat.fat == NULL) {
         console_puts("[kinit] initrd image is invalid\n");

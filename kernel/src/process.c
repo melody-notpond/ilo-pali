@@ -294,22 +294,15 @@ void kill_process(pid_t pid) {
     if (processes[pid].state == PROCESS_STATE_DEAD)
         return;
 
-    process_channel_t* channel = hashmap_find(capabilities, (void*) pid, find_associated_dead_capability);
-    if (channel != NULL) {
+    size_t i = 0, j = 0;
+    process_channel_t* channel;
+    while ((channel = hashmap_find(capabilities, (void*) pid, find_associated_dead_capability, &i, &j))) {
         free(channel->message_queue);
         channel->message_queue = NULL;
         channel->start = 0;
         channel->end = 0;
         channel->len = 0;
         channel->receiver = 0;
-        if ((channel = hashmap_get(capabilities, &channel->sender))) {
-            free(channel->message_queue);
-            channel->message_queue = NULL;
-            channel->start = 0;
-            channel->end = 0;
-            channel->len = 0;
-            channel->receiver = 0;
-        }
     }
 
     if (processes[pid].mmu_data == get_mmu())
@@ -343,17 +336,42 @@ int enqueue_message_to_channel(capability_t capability, process_message_t messag
     return 0;
 }
 
+// enqueue_interrupt_to_channel(capability_t, uint32_t) -> int
+// Enqueues an interrupt to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
+int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
+    process_channel_t* channel = hashmap_get(capabilities, &capability);
+    if (channel == NULL)
+        return 1;
+
+    if (channel->message_queue == NULL)
+        return 3;
+
+    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
+        return 2;
+
+    channel->message_queue[channel->end++] = (process_message_t) {
+        .type = 4,
+        .source = 0,
+        .data = id,
+        .metadata = 0,
+    };
+    if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
+        channel->end = 0;
+    channel->len++;
+    return 0;
+}
+
 // dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL || (channel->receiver && channel->receiver != pid))
+    if (channel == NULL)
         return 1;
-
-    channel->receiver = pid;
 
     if (channel->message_queue == NULL)
         return 3;
+
+    channel->receiver = pid;
 
     if (channel->len == 0)
         return 2;

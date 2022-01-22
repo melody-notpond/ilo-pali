@@ -7,6 +7,17 @@
 #include "opensbi.h"
 #include "time.h"
 
+static void* plic_base;
+static size_t plic_len;
+
+#define MAX_INTERRUPT   64
+struct interrupt_list {
+    struct interrupt_list* next;
+    capability_t receiver;
+} *interrupt_subscribers[MAX_INTERRUPT] = { NULL };
+
+#define CONTEXT(hartid, machine) (2*hartid+machine)
+
 void timer_switch(trap_t* trap) {
     pid_t next_pid = get_next_waiting_process(trap->pid);
     switch_to_process(trap, next_pid);
@@ -30,6 +41,27 @@ bool lock_equals(void* ref, int type, uint64_t value) {
     }
 }
 
+// init_interrupts(fdt_t*) -> void
+// Inits interrupts.
+void init_interrupts(fdt_t* fdt) {
+    void* node = fdt_find(fdt, "plic", NULL);
+    struct fdt_property reg = fdt_get_property(fdt, node, "reg");
+
+    // TODO: use #address-cells and #size-cells
+    plic_base = kernel_space_phys2virtual((void*) be_to_le(64, reg.data));
+    plic_len = be_to_le(64, reg.data + 8);
+
+    for (size_t i = 1; i <= MAX_INTERRUPT; i++) {
+        ((uint32_t*) plic_base)[i] = 0xffffffff;
+    }
+
+    for (size_t i = 0; i < 1024 / 4; i++) {
+        ((uint32_t*) (plic_base + 0x002000 + 0x80 * CONTEXT(0, 1)))[i] = 0xffffffff;
+    }
+
+    *(uint32_t*) (plic_base + 0x200000 + 0x1000 * CONTEXT(0, 1)) = 0;
+}
+
 // lock_stop(void*, int, uint64_t) -> bool
 // Returns true if the lock should stop blocking.
 bool lock_stop(void* ref, int type, uint64_t value) {
@@ -43,6 +75,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
         switch (cause) {
             // Software interrupt
             case 1:
+                console_printf("async cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
                 while(1);
 
             // Timer interrupt
@@ -51,14 +84,26 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 break;
 
             // External interrupt
-            case 9:
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
-                while(1);
+            case 9: {
+                volatile uint32_t* claim = (volatile uint32_t*) (plic_base + 0x200004 + 0x1000 * CONTEXT(0, 1));
+                uint32_t interrupt_id = *claim;
+
+                if (interrupt_id != 0 && interrupt_id <= MAX_INTERRUPT) {
+                    struct interrupt_list* list = interrupt_subscribers[interrupt_id - 1];
+                    while (list) {
+                        enqueue_interrupt_to_channel(list->receiver, interrupt_id);
+                        list = list->next;
+                    }
+                }
+
+                *claim = interrupt_id;
                 break;
+            }
 
             // Everything else is either invalid or handled by the firmware.
             default:
                 while(1);
+                break;
         }
     } else {
         switch (cause) {
@@ -389,6 +434,10 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     pages[i] = entry;
                                 }
 
+                                for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
+                                    incr_page_ref_count(MMU_UNWRAP(4, pages[i]), 1);
+                                }
+
                                 data = (uint64_t) pages;
                                 break;
                             }
@@ -495,7 +544,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                         if (pages[i] & MMU_BIT_USER) {
                                             void* physical = MMU_UNWRAP(4, pages[i]);
-                                            incr_page_ref_count(physical, 1);
                                             mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (pages[i] & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
                                         }
                                     }
@@ -504,7 +552,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     if (data != NULL)
                                         *data = (uint64_t) page_holder->last_virtual_page;
                                     page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
-                                } else if (message.type != 0 && message.type != 1)
+                                } else if (message.type != 0 && message.type != 1 && message.type != 4)
                                     console_printf("[interrupt_handler] warning: unknown message type 0x%lx\n", message.type);
                                 break;
                             case 1:
@@ -570,9 +618,20 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // claim_interrupt(pid_t pid, int interrupt, void (*handler)(int interrupt)) -> int status
-                    // Claims or unclaims an interrupt. If the handler is NULL, the interrupt is unclaimed. Returns 0 on success and 1 if the action is not allowed (ie, interrupt was already claimed, not owned by the process with the passed in pid, or the process is not initd).
+                    // subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void
+                    // Subscribes to an interrupt.
                     case 14: {
+                        uint32_t id = trap->xs[REGISTER_A1];
+                        capability_t* cap = (void*) trap->xs[REGISTER_A2];
+                        if (cap == NULL || id == 0 || id > MAX_INTERRUPT)
+                            break;
+                        id--;
+                        struct interrupt_list* new = malloc(sizeof(struct interrupt_list));
+                        *new = (struct interrupt_list) {
+                            .next = interrupt_subscribers[id],
+                            .receiver = *cap,
+                        };
+                        interrupt_subscribers[id] = new;
                         break;
                     }
 
@@ -586,6 +645,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (trap->pid != 0 && process->thread_source != 0) {
                             trap->xs[REGISTER_A0] = 0;
+                            trap->xs[REGISTER_A1] = 0;
                             break;
                         }
 
@@ -609,13 +669,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
+                        process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                         for (size_t i = 0; i < count; i++) {
-                            mmu_map(process->mmu_data, process->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
+                            mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
                         }
 
-                        trap->xs[REGISTER_A0] = (uint64_t) process->last_virtual_page; 
-                        trap->xs[REGISTER_A0] = (uint64_t) physical;
-                        process->last_virtual_page += PAGE_SIZE * count;
+                        trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page; 
+                        trap->xs[REGISTER_A1] = (uint64_t) physical;
+                        page_holder->last_virtual_page += PAGE_SIZE * count;
                         break;
                     }
 

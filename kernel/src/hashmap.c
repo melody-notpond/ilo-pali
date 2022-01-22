@@ -214,17 +214,20 @@ void hashmap_remove(hashmap_t* hashmap, void* key) {
     }
 }
 
-// hashmap_find(hashmap_t*, void*, fn(void*, void*) -> bool) -> void*
+// hashmap_find(hashmap_t*, void*, fn(void*, void*) -> bool, size_t*, size_t*) -> void*
 // Finds a hashmap value that matches the given function. Returns NULL on failure.
-void* hashmap_find(hashmap_t* hashmap, void* data, bool (*fn)(void*, void*, void*)) {
+void* hashmap_find(hashmap_t* hashmap, void* data, bool (*fn)(void*, void*, void*), size_t* ip, size_t* jp) {
     size_t key_size = (*hashmap)->key_size;
     size_t val_size = (*hashmap)->val_size;
 
-    for (size_t i = 0; i < (*hashmap)->cap; i++) {
+    for (size_t i = ip ? *ip : 0; i < (*hashmap)->cap; i++) {
         struct s_hashmap_bucket* bucket = &(*hashmap)->ring[i];
-        for (size_t i = 0; i < bucket->len; i++) {
-            if (fn(data, bucket->keys + i * key_size, bucket->values + i * val_size))
-                return bucket->values + i * val_size;
+        for (size_t j = jp ? *jp : 0; j < bucket->len; j++) {
+            if (fn(data, bucket->keys + j * key_size, bucket->values + j * val_size)) {
+                *ip = i;
+                *jp = j;
+                return bucket->values + j * val_size;
+            }
         }
     }
 

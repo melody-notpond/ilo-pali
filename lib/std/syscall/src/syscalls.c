@@ -119,6 +119,12 @@ uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size) 
     return syscall(13, (uint64_t) func, (uint64_t) args, arg_size, 0, 0, 0).first;
 }
 
+// subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void
+// Subscribes to an interrupt.
+void subscribe_to_interrupt(uint32_t id, capability_t* capability) {
+    syscall(14, id, (uint64_t) capability, 0, 0, 0, 0);
+}
+
 // alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
 // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.
 virtual_physical_pair_t alloc_pages_physical(size_t count, int permissions) {

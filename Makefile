@@ -5,7 +5,7 @@ EMU    = qemu-system-riscv64
 
 CODE = src/
 
-EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -s -nographic
+EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -s -serial stdio
 ifdef WAIT_GDB
 	EFLAGS += -S
 endif
@@ -24,8 +24,9 @@ run:
 	$(EMU) $(EFLAGS) -kernel build/kernel -initrd build/initrd
 
 boot: boot_dir lib
-	$(MAKE) -C boot/initd
-	$(MAKE) -C boot/virtd
+	$(MAKE) -C boot/initd/
+	$(MAKE) -C boot/virtd/
+	$(MAKE) -C boot/virtgpu/
 	cp boot/maps build/boot/
 
 lib: lib_dir
@@ -37,6 +38,7 @@ lib: lib_dir
 	$(MAKE) -C lib/std/iter/
 	$(MAKE) -C lib/std/join/
 	$(MAKE) -C lib/std/syscall/
+	$(MAKE) -C lib/virtio/
 
 lib_dir:
 	mkdir -p build/lib

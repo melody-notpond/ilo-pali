@@ -3,6 +3,7 @@
 
 #include "core/prelude.h"
 #include "alloc.h"
+#include "syscalls.h"
 
 #define DISABLE_VIRTIO_F_RING_EVENT_IDX
 
@@ -66,13 +67,14 @@ typedef struct __attribute__((__packed__, aligned(4))) {
 	volatile char config[];
 } virtio_mmio_t;
 
-// virtio_init_mmio(void*, uint32_t, fn(const volatile void*, uint32_t) -> uint32_t, fn(volatile virtio_mmio_t*) -> bool) -> virtio_mmio_init_state_t
+// virtio_init_mmio(void*, void*, uint32_t, fn(const volatile void*, uint32_t) -> uint32_t, fn(void*, volatile virtio_mmio_t*) -> bool) -> virtio_mmio_init_state_t
 // Initialises a virtio device using the mmio mapped to it.
 virtio_mmio_init_state_t virtio_init_mmio(
+    void* data,
     void* m,
     uint32_t requested_device_id,
     uint32_t (*features_callback)(const volatile void* config, uint32_t features),
-    bool (*setup_callback)(volatile virtio_mmio_t* mmio)
+    bool (*setup_callback)(void* data, volatile virtio_mmio_t* mmio)
 );
 
 #define VIRTIO_RING_SIZE (1 << 7)
@@ -116,9 +118,9 @@ typedef struct __attribute__((packed)) {
     volatile virtio_used_t* used;
 } virtio_queue_t;
 
-// virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t) -> virtio_queue_t*
+// virtqueue_add_to_device(void*, fn(void*, size_t) -> void*, volatile virtio_mmio_t* mmio, uint32_t) -> virtio_queue_t*
 // Adds a virtqueue to a device.
-virtio_queue_t* virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t queue_sel);
+virtio_queue_t* virtqueue_add_to_device(void* data, virtual_physical_pair_t (*alloc)(void*, size_t), volatile virtio_mmio_t* mmio, uint32_t queue_sel);
 
 // virtqueue_push_descriptor(virtio_queue_t*, uint16_t*) -> volatile virtio_descriptor_t*
 // Pushes a descriptor to a queue.

@@ -73,6 +73,7 @@ uint64_t kill(uint64_t pid);
 #define MSG_TYPE_INT       1
 #define MSG_TYPE_POINTER   2
 #define MSG_TYPE_DATA      3
+#define MSG_TYPE_INTERRUPT 3
 
 // send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata) -> int status
 // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, and 2 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns. If an invalid capability is passed in, this kills the process.
@@ -112,6 +113,10 @@ void lock(void* ref, int type, uint64_t value);
 // spawn_thread(void (*func)(void*, size_t), void* data, size_t size) -> pid_t thread
 // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
 uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size);
+
+// subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void
+// Subscribes to an interrupt.
+void subscribe_to_interrupt(uint32_t id, capability_t* capability);
 
 // alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
 // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.

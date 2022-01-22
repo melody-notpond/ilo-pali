@@ -9,13 +9,14 @@
 #define MMIO_DRIVER_OK      4
 #define MMIO_NEEDS_RESET    64
 
-// virtio_init_mmio(void*, uint32_t, fn(const volatile void*, uint32_t) -> uint32_t, fn(volatile virtio_mmio_t*) -> bool) -> virtio_mmio_init_state_t
+// virtio_init_mmio(void*, void*, uint32_t, fn(const volatile void*, uint32_t) -> uint32_t, fn(void*, volatile virtio_mmio_t*) -> bool) -> virtio_mmio_init_state_t
 // Initialises a virtio device using the mmio mapped to it.
 virtio_mmio_init_state_t virtio_init_mmio(
+    void* data,
     void* m,
     uint32_t requested_device_id,
     uint32_t (*features_callback)(const volatile void* config, uint32_t features),
-    bool (*setup_callback)(volatile virtio_mmio_t* mmio)
+    bool (*setup_callback)(void* data, volatile virtio_mmio_t* mmio)
 ) {
     volatile virtio_mmio_t* mmio = m;
     if (mmio->magic_value != VIRTIO_MAGIC || mmio->version != 0x2)
@@ -50,7 +51,7 @@ virtio_mmio_init_state_t virtio_init_mmio(
         return VIRTIO_MMIO_INIT_STATE_UNSUPPORTED_FEATURES;
 
     // Step 7: device specific setup
-    if (setup_callback(mmio))
+    if (setup_callback(data, mmio))
         return VIRTIO_MMIO_INIT_STATE_UNKNOWN_ERROR;
 
     // Step 8: set DRIVER_OK and we are live!
@@ -58,9 +59,9 @@ virtio_mmio_init_state_t virtio_init_mmio(
     return VIRTIO_MMIO_INIT_STATE_SUCCESS;
 }
 
-// virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t) -> virtio_queue_t*
+// virtqueue_add_to_device(void*, fn(void*, size_t) -> void*, volatile virtio_mmio_t* mmio, uint32_t) -> virtio_queue_t*
 // Adds a virtqueue to a device.
-virtio_queue_t* virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t queue_sel) {
+virtio_queue_t* virtqueue_add_to_device(void* data, virtual_physical_pair_t (*alloc)(void*, size_t), volatile virtio_mmio_t* mmio, uint32_t queue_sel) {
     // Check queue size
     uint32_t queue_num_max = mmio->queue_num_max;
 
@@ -81,15 +82,20 @@ virtio_queue_t* virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t q
     }
 
     // Allocate queue
-    virtio_queue_t* queue = malloc(sizeof(virtio_queue_t) + VIRTIO_RING_SIZE * sizeof(virtio_descriptor_t) + sizeof(virtio_available_t) + sizeof(virtio_used_t));
+    virtual_physical_pair_t pair = alloc(data, sizeof(virtio_queue_t) + VIRTIO_RING_SIZE * sizeof(virtio_descriptor_t) + sizeof(virtio_available_t) + sizeof(virtio_used_t));
+    virtio_queue_t* queue = pair.virtual_;
     void* ptr = (void*) queue;
+    uint64_t physical = pair.physical;
     queue->num = 0;
     queue->last_seen_used = 0;
     queue->desc = (ptr += sizeof(virtio_queue_t));
+    uint64_t desc = (physical += sizeof(virtio_queue_t));
     queue->available = (ptr += VIRTIO_RING_SIZE * sizeof(virtio_descriptor_t));
+    uint64_t available = (physical += VIRTIO_RING_SIZE * sizeof(virtio_descriptor_t));
     queue->available->flags = 0;
     queue->available->idx = 0;
     queue->used = (ptr += sizeof(virtio_available_t));
+    uint64_t used = (physical += sizeof(virtio_available_t));
     queue->used->flags = 0;
     queue->used->idx = 0;
 
@@ -97,12 +103,12 @@ virtio_queue_t* virtqueue_add_to_device(volatile virtio_mmio_t* mmio, uint32_t q
     mmio->queue_num = VIRTIO_RING_SIZE;
 
     // Give device queue addresses
-    mmio->queue_desc_low = (uint32_t) (uint64_t) queue->desc;
-    mmio->queue_desc_high = ((uint32_t) (((uint64_t) queue->desc) >> 32));
-    mmio->queue_avail_low = (uint32_t) (uint64_t) queue->available;
-    mmio->queue_avail_high = ((uint32_t) (((uint64_t) queue->available) >> 32));
-    mmio->queue_used_low = (uint32_t) (uint64_t) queue->used;
-    mmio->queue_used_high = ((uint32_t) (((uint64_t) queue->used) >> 32));
+    mmio->queue_desc_low = (uint32_t) desc;
+    mmio->queue_desc_high = ((uint32_t) (desc >> 32));
+    mmio->queue_avail_low = (uint32_t) available;
+    mmio->queue_avail_high = ((uint32_t) (available >> 32));
+    mmio->queue_used_low = (uint32_t) used;
+    mmio->queue_used_high = ((uint32_t) (used >> 32));
 
     // State that queue is ready
     mmio->queue_ready = 1;

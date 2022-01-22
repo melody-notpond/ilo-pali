@@ -95,6 +95,10 @@ void kill_process(pid_t pid);
 // Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
 int enqueue_message_to_channel(capability_t capability, process_message_t message);
 
+// enqueue_interrupt_to_channel(capability_t, uint32_t) -> int
+// Enqueues an interrupt to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
+int enqueue_interrupt_to_channel(capability_t capability, uint32_t id);
+
 // dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message);

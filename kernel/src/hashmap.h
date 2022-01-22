@@ -27,9 +27,9 @@ void* hashmap_get(hashmap_t* hashmap, void* key);
 // Removes a key value pair from a hashmap.
 void hashmap_remove(hashmap_t* hashmap, void* key);
 
-// hashmap_find(hashmap_t*, void*, fn(void*, void*) -> bool) -> void*
+// hashmap_find(hashmap_t*, void*, fn(void*, void*) -> bool, size_t*, size_t*) -> void*
 // Finds a hashmap value that matches the given function. Returns NULL on failure.
-void* hashmap_find(hashmap_t* hashmap, void* data, bool (*fn)(void*, void*, void*));
+void* hashmap_find(hashmap_t* hashmap, void* data, bool (*fn)(void*, void*, void*), size_t* ip, size_t* jp);
 
 // TODO: hashmap_clean
 

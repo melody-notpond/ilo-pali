@@ -1,6 +1,7 @@
 #ifndef INTERRUPT_H
 #define INTERRUPT_H
 
+#include "fdt.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -47,6 +48,10 @@ typedef struct {
     uint64_t xs[32];
     double fs[32];
 } trap_t;
+
+// init_interrupts(fdt_t*) -> void
+// Inits interrupts.
+void init_interrupts(fdt_t* fdt);
 
 // lock_stop(void*, int, uint64_t) -> bool
 // Returns true if the lock should stop blocking.

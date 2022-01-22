@@ -38,6 +38,10 @@ int console_vprintf(const char* format, va_list va) {
                     unsigned long long p = (unsigned long long) va_arg(va, void*);
                     sbi_console_putchar('0');
                     sbi_console_putchar('x');
+                    if (p == 0) {
+                        sbi_console_putchar('0');
+                        break;
+                    }
                     static const size_t buffer_size = 16;
                     char buffer[buffer_size];
                     size_t len = 0;

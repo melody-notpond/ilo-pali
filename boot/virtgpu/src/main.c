@@ -104,19 +104,12 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     mmio->queue_notify = 0;
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
-    uint32_t x, y, width, height;
     if (type == 4) {
         uart_printf("[gpu driver] got display info\n");
         if (info->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
             uart_printf("[gpu driver] failed to get display info. quitting");
             kill(getpid());
         }
-
-        x = info->pmodes[0].r.x;
-        y = info->pmodes[0].r.y;
-        width = info->pmodes[0].r.width;
-        height = info->pmodes[0].r.height;
-        uart_printf("%xx%x - %xx%x\n", x, y, width, height);
     } else {
         uart_printf("oh no\n");
     }

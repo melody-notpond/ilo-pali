@@ -16,4 +16,8 @@ void* memcpy(void* dest, const void* src, unsigned long int n);
 // Sets a value over a space. Returns the original pointer.
 void* memset(void* p, int i, unsigned long int n);
 
+// memeq(void*, void*, size_t) -> bool
+// Returns true if the two pointers have identical data.
+bool memeq(void* p, void* q, size_t size);
+
 #endif /* PRELUDE_H */

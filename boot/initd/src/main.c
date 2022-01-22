@@ -16,15 +16,17 @@ void handle_driver(void* args, size_t _size) {
     uint64_t meta;
     void* addr;
     while (!recv(true, capability, &pid, &type, &data, &meta)) {
-        if (type == MSG_TYPE_SIGNAL && data == 1) {
+        if (type == MSG_TYPE_SIGNAL && data == 0) {
             addr = (void*) meta;
-        } else if (type == MSG_TYPE_SIGNAL && data == 2) {
+        } else if (type == MSG_TYPE_SIGNAL && data == 1) {
             uint64_t* alloced = alloc_page(addr, meta, PERM_READ | PERM_WRITE);
             send(true, capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta);
+            dealloc_page(alloced, meta);
         }
     }
 
     dealloc(&allocator, args);
+    kill(getpid());
 }
 
 void _start(void* fdt) {

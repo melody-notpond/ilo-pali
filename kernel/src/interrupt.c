@@ -149,7 +149,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             }
                             trap->xs[REGISTER_A0] = (uint64_t) addr;
                         } else if (trap->pid == 0 || process->thread_source == 0) {
-                            if (addr < get_memory_start()) {
+                            if (addr + count * PAGE_SIZE < get_memory_start()) {
                                 process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
                                 for (size_t i = 0; i < count; i++) {
                                     mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
@@ -380,7 +380,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 uint64_t* pages = malloc((meta + PAGE_SIZE - 1) / PAGE_SIZE * sizeof(uint64_t));
                                 for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     intptr_t entry = mmu_walk(current, (void*) data + i * PAGE_SIZE);
-                                    if ((entry & MMU_BIT_USER) == 0 || (entry & MMU_BIT_VALID) == 0) {
+                                    if ((entry & MMU_BIT_VALID) == 0 || (entry & MMU_BIT_USER) == 0 || (entry & MMU_BIT_VALID) == 0) {
                                         trap->xs[REGISTER_A0] = 1;
                                         free(pages);
                                         return trap;
@@ -488,14 +488,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 // Pointer
                                 } else if (message.type == 2) {
                                     process_t* process = get_process(trap->pid);
-                                    process_t* sender = get_process(message.source);
-
-                                    if (sender == NULL) {
-                                        free((void*) message.data);
-                                        trap->pc -= 4;
-                                        timer_switch(trap);
-                                        return trap;
-                                    }
 
                                     mmu_level_1_t* current = process->mmu_data;
                                     process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
@@ -508,6 +500,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                         }
                                     }
 
+                                    free(pages);
                                     if (data != NULL)
                                         *data = (uint64_t) page_holder->last_virtual_page;
                                     page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;

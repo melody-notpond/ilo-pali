@@ -20,7 +20,7 @@ void handle_driver(void* args, size_t _size) {
             addr = (void*) meta;
         } else if (type == MSG_TYPE_SIGNAL && data == 1) {
             uint64_t* alloced = alloc_page(addr, meta, PERM_READ | PERM_WRITE);
-            send(true, capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta);
+            send(true, capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta * PAGE_SIZE);
             dealloc_page(alloced, meta);
         }
     }

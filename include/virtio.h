@@ -15,7 +15,7 @@ typedef enum {
     VIRTIO_MMIO_INIT_STATE_UNKNOWN_ERROR,
 } virtio_mmio_init_state_t;
 
-typedef struct __attribute__((__packed__)) {
+typedef struct __attribute__((__packed__, aligned(4))) {
     volatile const uint32_t magic_value;
 	volatile const uint32_t version;
 	volatile const uint32_t device_id;

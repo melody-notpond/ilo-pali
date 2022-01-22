@@ -17,6 +17,8 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
     recv(true, &cap, &pid, &type, &data, &meta);
 
     volatile virtio_mmio_t* mmio = (void*) data;
+    if (mmio->magic_value != 0x74726976)
+        *(volatile char*) NULL = 0;
     if (mmio->device_id != 0) {
         uart_printf("device with id %x found!\n", mmio->device_id);
         kill(getpid());

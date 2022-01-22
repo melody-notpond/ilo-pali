@@ -21,7 +21,7 @@ ilo pali microkernel features:
  - initrd driver (read only)
  - memory management
  - process management
- - like 15 syscalls
+ - like 20 syscalls
 
 ## Resources
  - [OpenSBI docs](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc)

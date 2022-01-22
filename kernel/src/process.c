@@ -1,10 +1,12 @@
 #include <stdbool.h>
 
 #include "console.h"
+#include "hashmap.h"
 #include "memory.h"
 #include "process.h"
 
 process_t* processes;
+hashmap_t* capabilities;
 
 pid_t MAX_PID = 1024;
 pid_t current_pid = 0;
@@ -13,6 +15,7 @@ pid_t current_pid = 0;
 // Initialises process related stuff.
 void init_processes() {
     processes = malloc(MAX_PID * sizeof(process_t));
+    capabilities = create_hashmap(sizeof(capability_t), sizeof(process_channel_t));
 }
 
 // spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
@@ -103,12 +106,6 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].mmu_data = top;
     processes[pid].pc = elf->header->entry;
     processes[pid].state = PROCESS_STATE_WAIT;
-
-    processes[pid].message_queue = malloc(PROCESS_MESSAGE_QUEUE_SIZE * sizeof(process_message_t));
-    processes[pid].message_queue_start = 0;
-    processes[pid].message_queue_end = 0;
-    processes[pid].message_queue_len = 0;
-    processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
     return pid;
 }
 
@@ -155,13 +152,42 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     processes[pid].thread_source = -1;
     processes[pid].pc = (uint64_t) func;
     processes[pid].state = PROCESS_STATE_WAIT;
-
-    processes[pid].message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE);
-    processes[pid].message_queue_start = 0;
-    processes[pid].message_queue_end = 0;
-    processes[pid].message_queue_len = 0;
-    processes[pid].message_queue_cap = PAGE_SIZE / sizeof(process_message_t);
     return pid;
+}
+
+// create_capability(pid_t, capability_t*, pid_t, capability_t*) -> void
+// Creates a capability pair. The provided pointers are set to the capabilities.
+void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b) {
+    *a = 0;
+    *b = 0;
+    do {
+        // TODO: cryptographically secure random function
+        *a += 1;
+    } while (hashmap_get(capabilities, a) != NULL);
+
+    hashmap_insert(capabilities, a, &(process_channel_t) {
+        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
+        .start = 0,
+        .end = 0,
+        .len = 0,
+        .receiver = pa,
+    });
+
+    do {
+        // TODO: cryptographically secure random function
+        *b += 1;
+    } while (hashmap_get(capabilities, b) != NULL);
+
+    hashmap_insert(capabilities, b, &(process_channel_t) {
+        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
+        .start = 0,
+        .end = 0,
+        .len = 0,
+        .sender = *a,
+        .receiver = pb,
+    });
+
+    ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;
 }
 
 // switch_to_process(trap_t*, pid_t) -> void
@@ -255,13 +281,36 @@ process_t* get_process(pid_t pid) {
     return &processes[pid];
 }
 
+static bool find_associated_dead_capability(void* data, void* _key, void* value) {
+    process_channel_t* channel = value;
+    pid_t pid = (pid_t) data;
+    return channel->receiver == pid;
+}
+
 // kill_process(pid_t) -> void
 // Kills a process.
 void kill_process(pid_t pid) {
     if (processes[pid].state == PROCESS_STATE_DEAD)
         return;
 
-    free(processes[pid].message_queue);
+    process_channel_t* channel = hashmap_find(capabilities, (void*) pid, find_associated_dead_capability);
+    if (channel != NULL) {
+        free(channel->message_queue);
+        channel->message_queue = NULL;
+        channel->start = 0;
+        channel->end = 0;
+        channel->len = 0;
+        channel->receiver = 0;
+        if ((channel = hashmap_get(capabilities, &channel->sender))) {
+            free(channel->message_queue);
+            channel->message_queue = NULL;
+            channel->start = 0;
+            channel->end = 0;
+            channel->len = 0;
+            channel->receiver = 0;
+        }
+    }
+
     if (processes[pid].mmu_data == get_mmu())
         set_mmu(processes[0].mmu_data);
 
@@ -269,32 +318,45 @@ void kill_process(pid_t pid) {
     processes[pid].state = PROCESS_STATE_DEAD;
 }
 
-// enqueue_message_to_process(pid_t, process_message_t) -> bool
-// Enqueues a message to a process's message queue. Returns true if successful and false if the process was not found or if the queue is full.
-bool enqueue_message_to_process(pid_t recipient, process_message_t message) {
-    process_t* process = get_process(recipient);
-    if (process == NULL || process->message_queue_len >= process->message_queue_cap)
-        return false;
+// enqueue_message_to_channel(capability_t, process_message_t) -> int
+// Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
+int enqueue_message_to_channel(capability_t capability, process_message_t message) {
+    process_channel_t* sender_channel = hashmap_get(capabilities, &capability);
+    if (sender_channel == NULL)
+        return 1;
+    process_channel_t* channel = hashmap_get(capabilities, &sender_channel->sender);
+    if (channel == NULL)
+        return 1;
 
-    process->message_queue[process->message_queue_end] = message;
-    process->message_queue_end++;
-    if (process->message_queue_end >= process->message_queue_cap)
-        process->message_queue_end = 0;
-    process->message_queue_len++;
-    return true;
+    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
+        return 2;
+
+    if (channel->message_queue == NULL)
+        return 3;
+
+    channel->message_queue[channel->end++] = message;
+    if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
+        channel->end = 0;
+    channel->len++;
+    return 0;
 }
 
-// dequeue_message_from_process(pid_t, process_message_t) -> bool
-// Dequeues a message from a process's message queue. Returns true if successful and false if the process was not found or if the queue is empty.
-bool dequeue_message_from_process(pid_t pid, process_message_t* message) {
-    process_t* process = get_process(pid);
-    if (process == NULL || process->message_queue_len == 0)
-        return false;
+// dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
+// Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
+int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
+    process_channel_t* channel = hashmap_get(capabilities, &capability);
+    if (channel == NULL || channel->receiver != pid)
+        return 1;
 
-    *message = process->message_queue[process->message_queue_start];
-    process->message_queue_start++;
-    if (process->message_queue_start >= process->message_queue_cap)
-        process->message_queue_start = 0;
-    process->message_queue_len--;
-    return true;
+    if (channel->len == 0)
+        return 2;
+
+    if (channel->message_queue == NULL)
+        return 3;
+
+    *message = channel->message_queue[channel->start++];
+    if (channel->start >= PROCESS_MESSAGE_QUEUE_SIZE)
+        channel->start = 0;
+    channel->len--;
+    return 0;
 }

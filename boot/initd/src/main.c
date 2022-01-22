@@ -30,6 +30,7 @@ void _start(void* fdt) {
         .bytes = bytes,
     };
 
+    capability_t cap;
     for (str_t part = str_split(module_maps, S("\n"), STREMPTY); part.bytes != NULL; part = str_split(module_maps, S("\n"), part)) {
         str_t device = str_split(part, S(" "), STREMPTY);
         str_t module = str_split(part, S(" "), device);
@@ -51,7 +52,7 @@ void _start(void* fdt) {
             }
 
             uart_printf("spawning\n");
-            spawn_process(module_elf, module_size, NULL, 0);
+            spawn_process(module_elf, module_size, NULL, 0, &cap);
         }
 
         dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);
@@ -62,7 +63,8 @@ void _start(void* fdt) {
         int type;
         uint64_t data;
         uint64_t meta;
-        recv(true, &pid, &type, &data, &meta);
+        recv(true, &cap, &pid, &type, &data, &meta);
+        uart_printf("pid, type, data, meta = %x, %x, %x, %x", pid, type, data, meta);
     }
 }
 

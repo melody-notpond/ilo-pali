@@ -7,6 +7,7 @@
 
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
+typedef __uint128_t capability_t;
 
 typedef struct {
     uint64_t seconds;
@@ -59,10 +60,10 @@ int setuid(pid_t pid, uid_t uid);
 // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
 time_t sleep(uint64_t seconds, uint64_t micros);
 
-// spawn(void* exe, size_t exe_size, void* args, size_t args_size) -> pid_t child
+// spawn(void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
 // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
 // The executable may be a valid elf file. All data will be copied over to a new set of pages.
-uint64_t spawn_process(void* exe, size_t exe_size, void* args, size_t arg_size);
+uint64_t spawn_process(void* exe, size_t exe_size, void* args, size_t arg_size, capability_t* capability);
 
 // kill(pid_t pid) -> int status
 // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
@@ -73,8 +74,8 @@ uint64_t kill(uint64_t pid);
 #define MSG_TYPE_POINTER   2
 #define MSG_TYPE_DATA      3
 
-// send(bool block, pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status
-// Sends data to the given process. Returns 0 on success, 1 if process does not exist, 2 if invalid arguments, and 3 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
+// send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata) -> int status
+// Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, and 2 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns. If an invalid capability is passed in, this kills the process.
 // Types:
 // - SIGNAL  - 0
 //      Metadata can be any integer argument for the signal (for example, the size of the requested data).
@@ -84,11 +85,11 @@ uint64_t kill(uint64_t pid);
 //      Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
 // - DATA - 3
 //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
-int send(bool block, uint64_t pid, int type, uint64_t data, uint64_t metadata);
+int send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata);
 
-// recv(bool block, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
-// Blocks until a message is received and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not.
-int recv(bool block, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
+// recv(bool block, capability_t* channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
+// Blocks until a message is received on the given channel and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not. Kills the process if an invalid capability was provided.
+int recv(bool block, capability_t* channel, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
 
 #define LOCK_WAIT   0
 #define LOCK_WAKE   1

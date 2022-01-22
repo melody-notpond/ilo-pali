@@ -11,6 +11,7 @@
 
 #define PROCESS_MESSAGE_QUEUE_SIZE 128
 
+typedef __uint128_t capability_t;
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
 
@@ -47,13 +48,16 @@ typedef struct {
     uint64_t pc;
     uint64_t xs[32];
     double fs[32];
-
-    process_message_t* message_queue;
-    size_t message_queue_start;
-    size_t message_queue_end;
-    size_t message_queue_len;
-    size_t message_queue_cap;
 } process_t;
+
+typedef struct {
+    process_message_t* message_queue;
+    size_t start;
+    size_t end;
+    size_t len;
+    capability_t sender;
+    pid_t receiver;
+} process_channel_t;
 
 // init_processes() -> void
 // Initialises process related stuff.
@@ -66,6 +70,10 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
 // spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> pid_t
 // Spawns a thread from the given process. Returns -1 on failure.
 pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
+
+// create_capability(pid_t, capability_t*, pid_t, capability_t*) -> void
+// Creates a capability pair. The provided pointers are set to the capabilities.
+void create_capability(pid_t pa, capability_t* a, pid_t pb, capability_t* b);
 
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.
@@ -83,12 +91,12 @@ process_t* get_process(pid_t pid);
 // Kills a process.
 void kill_process(pid_t pid);
 
-// enqueue_message_to_process(pid_t, process_message_t) -> bool
-// Enqueues a message to a process's message queue. Returns true if successful and false if the process was not found or if the queue is full.
-bool enqueue_message_to_process(pid_t recipient, process_message_t message);
+// enqueue_message_to_channel(capability_t, process_message_t) -> int
+// Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
+int enqueue_message_to_channel(capability_t capability, process_message_t message);
 
-// dequeue_message_from_process(pid_t, process_message_t) -> bool
-// Dequeues a message from a process's message queue. Returns true if successful and false if the process was not found or if the queue is empty.
-bool dequeue_message_from_process(pid_t pid, process_message_t* message);
+// dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
+// Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
+int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message);
 
 #endif /* PROCESS_H */

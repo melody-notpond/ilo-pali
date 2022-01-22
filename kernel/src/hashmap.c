@@ -156,6 +156,17 @@ void hashmap_insert(hashmap_t* hashmap, void* key, void* value) {
     }
 }
 
+// hashmap_empty(hashmap_t* hashmap) -> bool
+// Returns true if the hashmap is empty.
+bool hashmap_empty(hashmap_t* hashmap) {
+    for (size_t i = 0; i < (*hashmap)->cap; i++) {
+        if ((*hashmap)->ring[i].len != 0)
+            return false;
+    }
+
+    return true;
+}
+
 // hashmap_get(hashmap_t*, void*) -> void*
 // Gets the value associated with the given key. Returns NULL on failure.
 void* hashmap_get(hashmap_t* hashmap, void* key) {
@@ -201,4 +212,21 @@ void hashmap_remove(hashmap_t* hashmap, void* key) {
         free(bucket->values);
         bucket->values = NULL;
     }
+}
+
+// hashmap_find(hashmap_t*, void*, fn(void*, void*) -> bool) -> void*
+// Finds a hashmap value that matches the given function. Returns NULL on failure.
+void* hashmap_find(hashmap_t* hashmap, void* data, bool (*fn)(void*, void*, void*)) {
+    size_t key_size = (*hashmap)->key_size;
+    size_t val_size = (*hashmap)->val_size;
+
+    for (size_t i = 0; i < (*hashmap)->cap; i++) {
+        struct s_hashmap_bucket* bucket = &(*hashmap)->ring[i];
+        for (size_t i = 0; i < bucket->len; i++) {
+            if (fn(data, bucket->keys + i * key_size, bucket->values + i * val_size))
+                return bucket->values + i * val_size;
+        }
+    }
+
+    return NULL;
 }

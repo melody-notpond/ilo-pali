@@ -287,7 +287,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn(void* exe, size_t exe_size, void* args, size_t args_size) -> pid_t child
+                    // spawn(void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
                     // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
                     // The executable may be a valid elf file. All data will be copied over to a new set of pages.
                     case 8: {
@@ -295,6 +295,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t exe_size = trap->xs[REGISTER_A2];
                         void* args = (void*) trap->xs[REGISTER_A3];
                         size_t args_size = trap->xs[REGISTER_A4];
+                        capability_t* capability = (void*) trap->xs[REGISTER_A5];
 
                         elf_t elf = verify_elf(exe, exe_size);
                         if (elf.header == NULL) {
@@ -304,10 +305,16 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         pid_t pid = spawn_process_from_elf(trap->pid, &elf, 2, args, args_size);
 
+                        if (capability != NULL) {
+                            capability_t b;
+                            create_capability(trap->pid, capability, pid, &b);
+                            get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
+                            get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
+                        }
+
                         trap->xs[REGISTER_A0] = pid;
                         break;
                     }
-
 
                     // kill(pid_t pid) -> int status
                     // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
@@ -328,13 +335,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         }
 
                         kill_process(pid);
-
-                        trap->xs[REGISTER_A0] = 0;
+                        if (trap->pid == pid) {
+                            timer_switch(trap);
+                        } else trap->xs[REGISTER_A0] = 0;
                         break;
                     }
 
-                    // send(bool block, pid_t pid, int type, uint64_t data, uint64_t metadata) -> int status
-                    // Sends data to the given process. Returns 0 on success, 1 if process does not exist, 2 if invalid arguments, and 3 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
+                    // send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata) -> int status
+                    // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, 2 if message queue is full, and 3 if the channel has closed. Blocks until the message is sent if block is true. If block is false, then it immediately returns. If an invalid capability is passed in, this kills the process.
                     // Types:
                     // - SIGNAL  - 0
                     //      Metadata can be any integer argument for the signal (for example, the size of the requested data).
@@ -346,15 +354,10 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
                     case 10: {
                         bool block = trap->xs[REGISTER_A1];
-                        pid_t pid = trap->xs[REGISTER_A2];
+                        capability_t* capability = (void*) trap->xs[REGISTER_A2];
                         int type = trap->xs[REGISTER_A3];
                         uint64_t data = trap->xs[REGISTER_A4];
                         uint64_t meta = trap->xs[REGISTER_A5];
-
-                        if (get_process(pid) == NULL) {
-                            trap->xs[REGISTER_A0] = 1;
-                            break;
-                        }
 
                         switch (type) {
                             // Signals
@@ -367,38 +370,42 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             // Pointers
                             case 2: {
                                 if (meta == 0) {
-                                    trap->xs[REGISTER_A0] = 2;
+                                    trap->xs[REGISTER_A0] = 1;
                                     return trap;
                                 }
 
                                 mmu_level_1_t* current = get_mmu();
+                                uint64_t* pages = malloc((meta + PAGE_SIZE - 1) / PAGE_SIZE * sizeof(uint64_t));
                                 for (size_t i = 0; i < (meta + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
                                     intptr_t entry = mmu_walk(current, (void*) data + i * PAGE_SIZE);
-                                    if ((entry & MMU_BIT_USER) == 0) {
-                                        trap->xs[REGISTER_A0] = 2;
+                                    if ((entry & MMU_BIT_USER) == 0 || (entry & MMU_BIT_VALID) == 0) {
+                                        trap->xs[REGISTER_A0] = 1;
+                                        free(pages);
                                         return trap;
                                     }
+
+                                    pages[i] = entry;
                                 }
+
+                                data = (uint64_t) pages;
                                 break;
                             }
 
                             // Data
                             case 3: {
                                 if (meta > PAGE_SIZE || meta == 0) {
-                                    trap->xs[REGISTER_A0] = 2;
+                                    trap->xs[REGISTER_A0] = 1;
                                     return trap;
                                 }
 
-                                void* copy = alloc_pages(1);
+                                void* copy = malloc(meta);
                                 memcpy(copy, (void*) data, meta);
-                                mmu_remove(get_mmu(), copy);
-                                mmu_map(get_process(pid)->mmu_data, copy, copy, MMU_BIT_READ | MMU_BIT_WRITE);
                                 data = (uint64_t) copy;
                                 break;
                             }
 
                             default:
-                                trap->xs[REGISTER_A0] = 2;
+                                trap->xs[REGISTER_A0] = 1;
                                 return trap;
                         }
 
@@ -409,70 +416,123 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             .metadata = meta,
                         };
 
-                        if (!enqueue_message_to_process(pid, message)) {
-                            if (block) {
-                                trap->pc -= 4;
-                                timer_switch(trap);
-                            } else trap->xs[REGISTER_A0] = 3;
-                        } else trap->xs[REGISTER_A0] = 0;
-
+                        switch (enqueue_message_to_channel(*capability, message)) {
+                            case 0:
+                                if (message.metadata == 2 || message.metadata == 3)
+                                    free((void*) message.data);
+                                trap->xs[REGISTER_A0] = 0;
+                                break;
+                            case 1:
+                                if (message.metadata == 2 || message.metadata == 3)
+                                    free((void*) message.data);
+                                if (trap->pid != 0) {
+                                    kill_process(trap->pid);
+                                    timer_switch(trap);
+                                } else {
+                                    trap->xs[REGISTER_A0] = 3;
+                                }
+                                break;
+                            case 2:
+                                if (block) {
+                                    trap->pc -= 4;
+                                    timer_switch(trap);
+                                } else trap->xs[REGISTER_A0] = 2;
+                                break;
+                            case 3:
+                                trap->xs[REGISTER_A0] = 3;
+                                break;
+                            default:
+                                console_printf("[interrupt_handler] warning: unknown return value from enqueue_message_to_channel\n");
+                                break;
+                        }
                         break;
                     }
 
-                    // recv(bool block, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
-                    // Blocks until a message is received and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not.
+                    // recv(bool block, capability_t* channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
+                    // Blocks until a message is received on the given channel and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received, 1 if not, and 2 if the channel has closed. Kills the process if an invalid capability was provided.
                     case 11: {
                         bool block = trap->xs[REGISTER_A1];
-                        pid_t* pid = (void*) trap->xs[REGISTER_A2];
-                        int* type = (void*) trap->xs[REGISTER_A3];
-                        uint64_t* data = (void*) trap->xs[REGISTER_A4];
-                        uint64_t* meta = (void*) trap->xs[REGISTER_A5];
+                        capability_t* capability = (void*) trap->xs[REGISTER_A2];
+                        pid_t* pid = (void*) trap->xs[REGISTER_A3];
+                        int* type = (void*) trap->xs[REGISTER_A4];
+                        uint64_t* data = (void*) trap->xs[REGISTER_A5];
+                        uint64_t* meta = (void*) trap->xs[REGISTER_A6];
 
                         process_message_t message;
-                        if (dequeue_message_from_process(trap->pid, &message)) {
-                            if (pid != NULL)
-                                *pid = message.source;
-                            if (type != NULL)
-                                *type = message.type;
-                            if (data != NULL)
-                                *data = message.data;
-                            if (meta != NULL)
-                                *meta = message.metadata;
-                            trap->xs[REGISTER_A0] = 0;
+                        switch (dequeue_message_from_channel(trap->pid, *capability, &message)) {
+                            case 0:
+                                if (pid != NULL)
+                                    *pid = message.source;
+                                if (type != NULL)
+                                    *type = message.type;
+                                if (data != NULL)
+                                    *data = message.data;
+                                if (meta != NULL)
+                                    *meta = message.metadata;
+                                trap->xs[REGISTER_A0] = 0;
 
-                            if (message.type == 3)
-                                mmu_map(get_mmu(), (void*) message.data, (void*) message.data, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
-                            else if (message.type == 2) {
-                                process_t* process = get_process(trap->pid);
-                                process_t* sender = get_process(message.source);
+                                // Data
+                                if (message.type == 3) {
+                                    void* message_data = (void*) message.data;
+                                    if (data != NULL) {
+                                        process_t* process = get_process(trap->pid);
+                                        mmu_alloc(process->mmu_data, process->last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+                                        memcpy(process->last_virtual_page, message_data, message.metadata);
+                                        *data = (uint64_t) process->last_virtual_page;
+                                        process->last_virtual_page += PAGE_SIZE;
+                                    }
+                                    free(message_data);
 
-                                if (sender == NULL) {
+                                // Pointer
+                                } else if (message.type == 2) {
+                                    process_t* process = get_process(trap->pid);
+                                    process_t* sender = get_process(message.source);
+
+                                    if (sender == NULL) {
+                                        free((void*) message.data);
+                                        trap->pc -= 4;
+                                        timer_switch(trap);
+                                        return trap;
+                                    }
+
+                                    mmu_level_1_t* current = process->mmu_data;
+                                    process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                                    uint64_t* pages = (uint64_t*) message.data;
+                                    for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
+                                        if (pages[i] & MMU_BIT_USER) {
+                                            void* physical = MMU_UNWRAP(4, pages[i]);
+                                            incr_page_ref_count(physical, 1);
+                                            mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (pages[i] & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
+                                        }
+                                    }
+
+                                    if (data != NULL)
+                                        *data = (uint64_t) page_holder->last_virtual_page;
+                                    page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                                } else if (message.type != 0 && message.type != 1)
+                                    console_printf("[interrupt_handler] warning: unknown message type 0x%lx\n", message.type);
+                                break;
+                            case 1:
+                                if (trap->pid != 0) {
+                                    kill_process(trap->pid);
+                                    timer_switch(trap);
+                                } else {
+                                    trap->xs[REGISTER_A0] = 2;
+                                }
+                                break;
+                            case 2:
+                                if (block) {
                                     trap->pc -= 4;
                                     timer_switch(trap);
-                                    return trap;
-                                }
-
-                                mmu_level_1_t* current = get_mmu();
-                                process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
-                                for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
-                                    void* virtual = (void*) message.data - message.data % PAGE_SIZE + i * PAGE_SIZE;
-                                    intptr_t entry = mmu_walk(sender->mmu_data, virtual);
-                                    if (entry & MMU_BIT_USER) {
-                                        void* physical = MMU_UNWRAP(4, entry);
-                                        incr_page_ref_count(physical, 1);
-                                        mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (entry & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
-                                    }
-                                }
-
-                                if (data != NULL)
-                                    *data = (uint64_t) page_holder->last_virtual_page + message.data % PAGE_SIZE;
-                                page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
-                            } else if (message.type != 0 && message.type != 1)
-                                console_printf("[interrupt_handler] warning: unknown message type 0x%x\n", *type);
-                        } else if (block) {
-                            trap->pc -= 4;
-                            timer_switch(trap);
-                        } else trap->xs[REGISTER_A0] = 1;
+                                } else trap->xs[REGISTER_A0] = 1;
+                                break;
+                            case 3:
+                                trap->xs[REGISTER_A0] = 2;
+                                break;
+                            default:
+                                console_printf("[interrupt_handler] warning: unknown return value from dequeue_message_from_channel\n");
+                                break;
+                        }
                         break;
                     }
 
@@ -527,8 +587,9 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t count = trap->xs[REGISTER_A1];
                         int perms = trap->xs[REGISTER_A2];
                         int flags = 0;
+                        process_t* process = get_process(trap->pid);
 
-                        if (trap->pid != 0) {
+                        if (trap->pid != 0 && process->thread_source != 0) {
                             trap->xs[REGISTER_A0] = 0;
                             break;
                         }
@@ -553,7 +614,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        process_t* process = get_process(trap->pid);
                         for (size_t i = 0; i < count; i++) {
                             mmu_map(process->mmu_data, process->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
                         }
@@ -563,6 +623,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         process->last_virtual_page += PAGE_SIZE * count;
                         break;
                     }
+
+                    // deny_capability(capability_t* capability) -> void
+                    // Denies the given capability. If the passed in capability is invalid, this kills the process.
+                    case 16:
+                        break;
 
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);

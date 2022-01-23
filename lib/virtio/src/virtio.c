@@ -108,7 +108,7 @@ virtio_queue_t* virtqueue_add_to_device(void* data, virtual_physical_pair_t (*al
     mmio->queue_avail_low = (uint32_t) available;
     mmio->queue_avail_high = ((uint32_t) (available >> 32));
     mmio->queue_used_low = (uint32_t) used;
-    mmio->queue_used_high = ((uint32_t) (used >> 32));
+    mmio->queue_used_high = (uint32_t) (used >> 32);
 
     // State that queue is ready
     mmio->queue_ready = 1;

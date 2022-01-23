@@ -11,4 +11,4 @@ CODE = src/
 .PHONY: all
 
 all: $(CODE)*.c
-	$(CC) $? $(CFLAGS) $(LIBS) -o ../../build/boot/virtgpu
+	$(CC) $? $(CFLAGS) $(LIBS) -o ../../build/boot/virtblock

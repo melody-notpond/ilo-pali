@@ -44,6 +44,7 @@ lib: lib_dir
 	$(MAKE) -C lib/std/format/
 	$(MAKE) -C lib/std/iter/
 	$(MAKE) -C lib/std/join/
+	$(MAKE) -C lib/std/sync/
 	$(MAKE) -C lib/std/syscall/
 	$(MAKE) -C lib/phalloc/
 	$(MAKE) -C lib/virtio/

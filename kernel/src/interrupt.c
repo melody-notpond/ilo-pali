@@ -607,13 +607,22 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn_thread(void (*func)(void*, size_t), void* data, size_t size) -> pid_t thread
+                    // spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
                     // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
                     case 13: {
                         void* func = (void*) trap->xs[REGISTER_A1];
                         void* data = (void*) trap->xs[REGISTER_A2];
                         size_t size = trap->xs[REGISTER_A3];
+                        capability_t* capability = (void*) trap->xs[REGISTER_A4];
                         pid_t pid = spawn_thread_from_func(trap->pid, func, 2, data, size);
+
+                        if (capability != NULL) {
+                            capability_t b;
+                            create_capability(capability, &b);
+                            get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
+                            get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
+                        }
+
                         trap->xs[REGISTER_A0] = pid;
                         break;
                     }

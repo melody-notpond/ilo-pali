@@ -113,10 +113,10 @@ void lock(void* ref, int type, uint64_t value) {
     syscall(12, (uint64_t) ref, type, value, 0, 0, 0);
 }
 
-// spawn_thread(void (*func)(void*, size_t), void* data, size_t size) -> pid_t thread
+// spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
 // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
-uint64_t spawn_thread(void (*func)(void*, size_t), void* args, size_t arg_size) {
-    return syscall(13, (uint64_t) func, (uint64_t) args, arg_size, 0, 0, 0).first;
+uint64_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* args, size_t arg_size, capability_t* capability) {
+    return syscall(13, (uint64_t) func, (uint64_t) args, arg_size, (uint64_t) capability, 0, 0).first;
 }
 
 // subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void

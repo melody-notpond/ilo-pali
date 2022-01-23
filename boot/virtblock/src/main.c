@@ -3,6 +3,7 @@
 #include "virtio.h"
 #include "phalloc.h"
 #include "virtblock.h"
+#include "sync.h"
 
 #define VIRTIO_BLK_F_RO 5
 
@@ -29,7 +30,8 @@ bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
     return false;
 }
 
-void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, virtio_queue_t* requestq, bool read, uint64_t sector_index, void* sector, size_t sector_count) {
+void perform_block_operation(volatile virtio_mmio_t* mmio, mutex_guard_t* allocator_guard, mutex_t* requestq_mutex, bool read, uint64_t sector_index, void* sector, size_t sector_count) {
+    alloc_t* allocator = allocator_guard->data;
     if (sector == NULL)
         sector = alloc(allocator, 512);
     uint8_t* status = alloc(allocator, 1);
@@ -41,6 +43,8 @@ void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, v
     };
 
     uint16_t d1, d2, d3;
+    mutex_guard_t requestq_guard = mutex_lock(requestq_mutex);
+    virtio_queue_t* requestq = requestq_guard.data;
     *virtqueue_push_descriptor(requestq, &d3) = (virtio_descriptor_t) {
         .addr = (void*) phalloc_get_physical(status),
         .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
@@ -63,7 +67,44 @@ void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, v
     };
 
     virtqueue_push_available(requestq, d1);
+    mutex_unlock(&requestq_guard);
+    mutex_unlock(allocator_guard);
     mmio->queue_notify = 0;
+}
+
+struct handle_interrupts_args {
+    uint64_t interrupt_id;
+    mutex_t* alloc_mutex;
+    mutex_t* requestq_mutex;
+};
+
+void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t cap_low) {
+    capability_t interrupts = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
+    struct handle_interrupts_args* args_struct = args;
+
+    subscribe_to_interrupt(args_struct->interrupt_id, &interrupts);
+
+    int type;
+    uint64_t data;
+    while (!recv(true, &interrupts, NULL, &type, &data, NULL)) {
+        if (type != MSG_TYPE_INTERRUPT)
+            continue;
+        mutex_guard_t requestq_guard = mutex_lock(args_struct->requestq_mutex);
+        virtio_queue_t* requestq = requestq_guard.data;
+        mutex_guard_t allocator_guard = mutex_lock(args_struct->alloc_mutex);
+        alloc_t* alloc = allocator_guard.data;
+        volatile virtio_descriptor_t* desc = virtqueue_pop_used(requestq);
+        dealloc(alloc, phalloc_get_virtual(alloc->data, (uint64_t) desc->addr));
+        desc = virtqueue_get_descriptor(requestq, desc->next);
+        desc = virtqueue_get_descriptor(requestq, desc->next);
+        uint8_t* status = phalloc_get_virtual(alloc->data, (uint64_t) desc->addr);
+        if (*status != 0)
+            uart_printf("block operation failed\n");
+        else uart_printf("block operation successful\n");
+        dealloc(alloc, status);
+        mutex_unlock(&allocator_guard);
+        mutex_unlock(&requestq_guard);
+    }
 }
 
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
@@ -76,8 +117,8 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     uart_printf("spawned virtio block driver\n");
 
     // Get interrupt id
-    recv(true, &superdriver, &pid, &type, &data, &meta);
-    subscribe_to_interrupt(data, &superdriver);
+    uint64_t interrupt_id;
+    recv(true, &superdriver, &pid, &type, &interrupt_id, &meta);
 
     virtio_queue_t* requestq;
     void* input[] = { (void*) &requestq, (void*) &superdriver };
@@ -111,37 +152,30 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             break;
     }
 
-    phalloc_t phalloc = physical_allocator_options(&superdriver, 0);
-    alloc_t allocator = create_physical_allocator(&phalloc);
+    struct {
+        alloc_t alloc;
+        phalloc_t phalloc;
+    } A;
+    A.phalloc = physical_allocator_options(&superdriver, 0);
+    A.alloc = create_physical_allocator(&A.phalloc);
+    mutex_t* alloc_mutex = create_mutex(&A.alloc, &A);
+    mutex_t* requestq_mutex = create_mutex(&A.alloc, requestq);
+    struct handle_interrupts_args args_struct = {
+        .interrupt_id = interrupt_id,
+        .alloc_mutex = alloc_mutex,
+        .requestq_mutex = requestq_mutex,
+    };
+    capability_t capability;
+    spawn_thread(handle_interrupts, &args_struct, sizeof(struct handle_interrupts_args), &capability);
 
-    uint8_t* sector = alloc(&allocator, 512);
-    perform_block_operation(mmio, &allocator, requestq, true, 0, sector, 1);
-    recv(true, &superdriver, NULL, &type, &data, NULL);
-    volatile virtio_descriptor_t* header = virtqueue_pop_used(requestq);
-    volatile virtio_descriptor_t* sect_desc = virtqueue_get_descriptor(requestq, header->next);
-    volatile virtio_descriptor_t* status = virtqueue_get_descriptor(requestq, sect_desc->next);
-
-    if (*(uint8_t*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr) != 0) {
-        uart_printf("failed to read from sector 0. quitting\n");
-        kill(getpid());
-    } else uart_printf("read from sector 0\n");
-    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) header->addr));
-    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr));
+    mutex_guard_t alloc_guard = mutex_lock(alloc_mutex);
+    uint8_t* sector = alloc(alloc_guard.data, 512);
+    perform_block_operation(mmio, &alloc_guard, requestq_mutex, true, 0, sector, 1);
 
     sector[0] = 0x42;
     sector[1] = 0x69;
-    perform_block_operation(mmio, &allocator, requestq, false, 0, sector, 1);
-    recv(true, &superdriver, NULL, &type, &data, NULL);
-    header = virtqueue_pop_used(requestq);
-    sect_desc = virtqueue_get_descriptor(requestq, header->next);
-    status = virtqueue_get_descriptor(requestq, sect_desc->next);
-
-    if (*(uint8_t*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr) != 0) {
-        uart_printf("failed to write to sector 0. quitting\n");
-        kill(getpid());
-    } else uart_printf("wrote to sector 0\n");
-    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) header->addr));
-    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr));
+    alloc_guard = mutex_lock(alloc_mutex);
+    perform_block_operation(mmio, &alloc_guard, requestq_mutex, false, 0, sector, 1);
 
     while(1);
 }

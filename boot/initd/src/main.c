@@ -129,7 +129,7 @@ void _start(void* fdt) {
             args->cap = cap;
             args->alloc = allocator;
             args->initrd = &initrd;
-            spawn_thread(handle_driver, args, sizeof(struct thread_args));
+            spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
         }
 
         dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);

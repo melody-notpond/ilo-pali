@@ -32,6 +32,7 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
             send(true, &initd, MSG_TYPE_DATA, (uint64_t) s.bytes, s.len);
             recv(true, &initd, &pid, &type, &data, &meta);
             subdriver = (capability_t) meta << 64 | (capability_t) data;
+            send(true, &subdriver, MSG_TYPE_INT, initd & 0xffffffffffffffff, initd >> 64);
             send(true, &subdriver, MSG_TYPE_INT, args64[2], 0);
             send(true, &subdriver, MSG_TYPE_POINTER, (uint64_t) mmio, mmio_size);
             break;
@@ -43,6 +44,7 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
             send(true, &initd, MSG_TYPE_DATA, (uint64_t) s.bytes, s.len);
             recv(true, &initd, &pid, &type, &data, &meta);
             subdriver = (capability_t) meta << 64 | (capability_t) data;
+            send(true, &subdriver, MSG_TYPE_INT, initd & 0xffffffffffffffff, initd >> 64);
             send(true, &subdriver, MSG_TYPE_INT, args64[2], 0);
             send(true, &subdriver, MSG_TYPE_POINTER, (uint64_t) mmio, mmio_size);
             break;
@@ -55,18 +57,5 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
     }
 
     while (!recv(true, &subdriver, &pid, &type, &data, &meta)) {
-        if (type == MSG_TYPE_SIGNAL) {
-            switch (data) {
-                case 2:
-                    send(true, &initd, MSG_TYPE_SIGNAL, 2, meta);
-                    recv(true, &initd, &pid, &type, &data, &meta);
-                    send(true, &subdriver, type, data, meta);
-                    recv(true, &initd, &pid, &type, &data, &meta);
-                    send(true, &subdriver, type, data, meta);
-                    break;
-                default:
-                    break;
-            }
-        }
     }
 }

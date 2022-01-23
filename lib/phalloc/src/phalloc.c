@@ -35,15 +35,7 @@ struct s_phalloc_bucket* phalloc_format_unused(virtual_physical_pair_t data, siz
 }
 
 virtual_physical_pair_t phalloc_alloc_helper(capability_t* cap, size_t size) {
-    send(true, cap, MSG_TYPE_SIGNAL, 2, (size + PAGE_SIZE - 1) / PAGE_SIZE);
-    uint64_t virtual;
-    uint64_t physical;
-    recv(true, cap, NULL, NULL, &virtual, NULL);
-    recv(true, cap, NULL, NULL, &physical, NULL);
-    return (virtual_physical_pair_t) {
-        .virtual_ = (void*) virtual,
-        .physical = physical,
-    };
+    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, cap);
 }
 
 void* phalloc_alloc(void* data, uint64_t origin, size_t size) {

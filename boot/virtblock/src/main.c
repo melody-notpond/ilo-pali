@@ -12,16 +12,8 @@ uint32_t features_callback(const volatile void* _config, uint32_t features) {
 }
 
 virtual_physical_pair_t alloc_queue(void* data, size_t size) {
-    capability_t* superdriver = data;
-    send(true, superdriver, MSG_TYPE_SIGNAL, 2, (size + PAGE_SIZE - 1) / PAGE_SIZE);
-    uint64_t virtual;
-    uint64_t physical;
-    recv(true, superdriver, NULL, NULL, &virtual, NULL);
-    recv(true, superdriver, NULL, NULL, &physical, NULL);
-    return (virtual_physical_pair_t) {
-        .virtual_ = (void*) virtual,
-        .physical = physical,
-    };
+    capability_t* initd = data;
+    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
 }
 
 bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
@@ -99,8 +91,8 @@ void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t
         desc = virtqueue_get_descriptor(requestq, desc->next);
         uint8_t* status = phalloc_get_virtual(alloc->data, (uint64_t) desc->addr);
         if (*status != 0)
-            uart_printf("block operation failed\n");
-        else uart_printf("block operation successful\n");
+            uart_printf("[block driver] block operation failed\n");
+        else uart_printf("[block driver] block operation successful\n");
         dealloc(alloc, status);
         mutex_unlock(&allocator_guard);
         mutex_unlock(&requestq_guard);
@@ -114,40 +106,44 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     int type;
     uint64_t data;
     uint64_t meta;
-    uart_printf("spawned virtio block driver\n");
+    uart_printf("[block driver] spawned virtio block driver\n");
+
+    // Get initd capability
+    recv(true, &superdriver, &pid, &type, &data, &meta);
+    capability_t initd = (capability_t) meta << 64 | (capability_t) data;
 
     // Get interrupt id
     uint64_t interrupt_id;
     recv(true, &superdriver, &pid, &type, &interrupt_id, &meta);
 
     virtio_queue_t* requestq;
-    void* input[] = { (void*) &requestq, (void*) &superdriver };
+    void* input[] = { (void*) &requestq, (void*) &initd };
 
     // Get mmio address
     recv(true, &superdriver, &pid, &type, &data, &meta);
     volatile virtio_mmio_t* mmio = (void*) data;
     switch (virtio_init_mmio(input, (void*) mmio, 2, features_callback, setup_callback)) {
         case VIRTIO_MMIO_INIT_STATE_SUCCESS:
-            uart_printf("block driver initialisation successful\n");
+            uart_printf("[block driver] block driver initialisation successful\n");
             break;
         case VIRTIO_MMIO_INIT_STATE_INVALID_MMIO:
-            uart_printf("invalid mmio passed in\n");
+            uart_printf("[block driver] invalid mmio passed in\n");
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_DEVICE_ID_0:
-            uart_printf("no device detected\n");
+            uart_printf("[block driver] no device detected\n");
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_DEVICE:
-            uart_printf("device is not a block device\n");
+            uart_printf("[block driver] device is not a block device\n");
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNSUPPORTED_FEATURES:
-            uart_printf("unsupported features passed in\n");
+            uart_printf("[block driver] unsupported features passed in\n");
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_ERROR:
-            uart_printf("an unknown error occurred\n");
+            uart_printf("[block driver] an unknown error occurred\n");
             kill(getpid());
             break;
     }
@@ -156,7 +152,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         alloc_t alloc;
         phalloc_t phalloc;
     } A;
-    A.phalloc = physical_allocator_options(&superdriver, 0);
+    A.phalloc = physical_allocator_options(&initd, 0);
     A.alloc = create_physical_allocator(&A.phalloc);
     mutex_t* alloc_mutex = create_mutex(&A.alloc, &A);
     mutex_t* requestq_mutex = create_mutex(&A.alloc, requestq);

@@ -171,7 +171,7 @@ void create_capability(capability_t* a, capability_t* b) {
         .start = 0,
         .end = 0,
         .len = 0,
-        .receiver = 0,
+        .receiver = -1,
     });
 
     do {
@@ -185,7 +185,7 @@ void create_capability(capability_t* a, capability_t* b) {
         .end = 0,
         .len = 0,
         .sender = *a,
-        .receiver = 0,
+        .receiver = -1,
     });
 
     ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;
@@ -381,4 +381,28 @@ int dequeue_message_from_channel(pid_t pid, capability_t capability, process_mes
         channel->start = 0;
     channel->len--;
     return 0;
+}
+
+// capability_connects_to_initd(capability_t) -> bool
+// Returns true if the capability connects to initd or one of its threads.
+bool capability_connects_to_initd(capability_t capability) {
+    process_channel_t* channel = hashmap_get(capabilities, &capability);
+    if (channel == NULL)
+        return false;
+    if (channel->receiver == 0)
+        return true;
+    process_t* receiver = get_process(channel->receiver);
+    if (receiver == NULL)
+        return false;
+    if (receiver->thread_source == 0)
+        return true;
+    channel = hashmap_get(capabilities, &channel->sender);
+    if (channel == NULL)
+        return false;
+    if (channel->receiver == 0)
+        return true;
+    receiver = get_process(channel->receiver);
+    if (receiver == NULL)
+        return false;
+    return receiver->thread_source == 0;
 }

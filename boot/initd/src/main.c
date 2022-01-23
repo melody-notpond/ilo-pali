@@ -13,7 +13,7 @@ struct thread_args {
     fat16_fs_t* initrd;
 };
 
-void handle_driver(void* args, size_t _size) {
+void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     capability_t capability = ((struct thread_args*) args)->cap;
     alloc_t allocator = ((struct thread_args*) args)->alloc;
     fat16_fs_t* initrd = ((struct thread_args*) args)->initrd;
@@ -34,14 +34,6 @@ void handle_driver(void* args, size_t _size) {
                     uint64_t* alloced = alloc_page(addr, meta, PERM_READ | PERM_WRITE);
                     send(true, &capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta * PAGE_SIZE);
                     dealloc_page(alloced, meta);
-                    break;
-                }
-
-                case 2: {
-                    virtual_physical_pair_t alloced = alloc_pages_physical(meta, PERM_READ | PERM_WRITE);
-                    send(true, &capability, MSG_TYPE_POINTER, (uint64_t) alloced.virtual_, meta * PAGE_SIZE);
-                    send(true, &capability, MSG_TYPE_INT, alloced.physical, 0);
-                    dealloc_page(alloced.virtual_, meta);
                     break;
                 }
 

@@ -9,16 +9,8 @@ uint32_t features_callback(const volatile void* _config, uint32_t features) {
 }
 
 virtual_physical_pair_t alloc_queue(void* data, size_t size) {
-    capability_t* superdriver = data;
-    send(true, superdriver, MSG_TYPE_SIGNAL, 2, (size + PAGE_SIZE - 1) / PAGE_SIZE);
-    uint64_t virtual;
-    uint64_t physical;
-    recv(true, superdriver, NULL, NULL, &virtual, NULL);
-    recv(true, superdriver, NULL, NULL, &physical, NULL);
-    return (virtual_physical_pair_t) {
-        .virtual_ = (void*) virtual,
-        .physical = physical,
-    };
+    capability_t* initd = data;
+    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
 }
 
 bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
@@ -37,13 +29,17 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     uint64_t meta;
     uart_printf("spawned virtio gpu driver\n");
 
+    // Get initd capability
+    recv(true, &superdriver, &pid, &type, &data, &meta);
+    capability_t initd = (capability_t) meta << 64 | (capability_t) data;
+
     // Get interrupt id
     recv(true, &superdriver, &pid, &type, &data, &meta);
     subscribe_to_interrupt(data, &superdriver);
 
     virtio_queue_t* controlq;
     virtio_queue_t* cursorq;
-    void* input[] = { (void*) &controlq, (void*) &cursorq, (void*) &superdriver };
+    void* input[] = { (void*) &controlq, (void*) &cursorq, (void*) &initd };
 
     // Get mmio address
     recv(true, &superdriver, &pid, &type, &data, &meta);
@@ -74,7 +70,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             break;
     }
 
-    phalloc_t phalloc = physical_allocator_options(&superdriver, 0);
+    phalloc_t phalloc = physical_allocator_options(&initd, 0);
     alloc_t allocator = create_physical_allocator(&phalloc);
 
     // Get display info

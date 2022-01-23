@@ -103,4 +103,8 @@ int enqueue_interrupt_to_channel(capability_t capability, uint32_t id);
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message);
 
+// capability_connects_to_initd(capability_t) -> bool
+// Returns true if the capability connects to initd or one of its threads.
+bool capability_connects_to_initd(capability_t capability);
+
 #endif /* PROCESS_H */

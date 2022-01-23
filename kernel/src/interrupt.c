@@ -527,10 +527,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     void* message_data = (void*) message.data;
                                     if (data != NULL) {
                                         process_t* process = get_process(trap->pid);
-                                        mmu_alloc(process->mmu_data, process->last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
-                                        memcpy(process->last_virtual_page, message_data, message.metadata);
-                                        *data = (uint64_t) process->last_virtual_page;
-                                        process->last_virtual_page += PAGE_SIZE;
+                                        process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                                        mmu_alloc(process->mmu_data, page_holder->last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+                                        memcpy(page_holder->last_virtual_page, message_data, message.metadata);
+                                        *data = (uint64_t) page_holder->last_virtual_page;
+                                        page_holder->last_virtual_page += PAGE_SIZE;
                                     }
                                     free(message_data);
 
@@ -644,19 +645,27 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // alloc_pages_physical(size_t count, int permissions) -> (void* virtual, intptr_t physical)
-                    // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure or if the process is not initd. Write and execute cannot both be set at the same time.
+                    // alloc_pages_physical(size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
+                    // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed.
                     case 15: {
                         size_t count = trap->xs[REGISTER_A1];
                         int perms = trap->xs[REGISTER_A2];
-                        int flags = 0;
-                        process_t* process = get_process(trap->pid);
+                        capability_t* cap = (void*) trap->xs[REGISTER_A3];
 
-                        if (trap->pid != 0 && process->thread_source != 0) {
+                        process_t* process = get_process(trap->pid);
+                        if (cap == NULL && process->thread_source != 0 && trap->pid != 0) {
                             trap->xs[REGISTER_A0] = 0;
                             trap->xs[REGISTER_A1] = 0;
                             break;
                         }
+
+                        if (!capability_connects_to_initd(*cap) && process->thread_source != 0 && trap->pid != 0) {
+                            kill_process(trap->pid);
+                            timer_switch(trap);
+                            return trap;
+                        }
+
+                        int flags = 0;
 
                         if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
                             trap->xs[REGISTER_A0] = 0;

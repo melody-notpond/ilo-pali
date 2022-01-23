@@ -1,3 +1,6 @@
+#ifndef VIRTGPU_H
+#define VIRTGPU_H
+
 #include "core/prelude.h"
 
 // This is basically just stolen from the specs
@@ -35,7 +38,7 @@ enum virtio_gpu_ctrl_type {
     VIRTIO_GPU_RESP_ERR_INVALID_RESOURCE_ID, 
     VIRTIO_GPU_RESP_ERR_INVALID_CONTEXT_ID, 
     VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER, 
-}; 
+};
  
 #define VIRTIO_GPU_FLAG_FENCE (1 << 0) 
  
@@ -59,29 +62,66 @@ struct virtio_gpu_rect {
 struct virtio_gpu_resp_display_info { 
     struct virtio_gpu_ctrl_hdr hdr; 
     struct virtio_gpu_display_one { 
-        struct virtio_gpu_rect r; 
-        uint32_t enabled; 
-        uint32_t flags; 
+    struct virtio_gpu_rect r; 
+    uint32_t enabled; 
+    uint32_t flags; 
     } pmodes[VIRTIO_GPU_MAX_SCANOUTS]; 
 };
 
 enum virtio_gpu_formats { 
-        VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  = 1, 
-        VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  = 2, 
-        VIRTIO_GPU_FORMAT_A8R8G8B8_UNORM  = 3, 
-        VIRTIO_GPU_FORMAT_X8R8G8B8_UNORM  = 4, 
+    VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM  = 1, 
+    VIRTIO_GPU_FORMAT_B8G8R8X8_UNORM  = 2, 
+    VIRTIO_GPU_FORMAT_A8R8G8B8_UNORM  = 3, 
+    VIRTIO_GPU_FORMAT_X8R8G8B8_UNORM  = 4, 
  
-        VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM  = 67, 
-        VIRTIO_GPU_FORMAT_X8B8G8R8_UNORM  = 68, 
+    VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM  = 67, 
+    VIRTIO_GPU_FORMAT_X8B8G8R8_UNORM  = 68, 
  
-        VIRTIO_GPU_FORMAT_A8B8G8R8_UNORM  = 121, 
-        VIRTIO_GPU_FORMAT_R8G8B8X8_UNORM  = 134, 
-}; 
+    VIRTIO_GPU_FORMAT_A8B8G8R8_UNORM  = 121, 
+    VIRTIO_GPU_FORMAT_R8G8B8X8_UNORM  = 134, 
+};
  
 struct virtio_gpu_resource_create_2d { 
-        struct virtio_gpu_ctrl_hdr hdr; 
-        uint32_t resource_id; 
-        uint32_t format; 
-        uint32_t width; 
-        uint32_t height; 
+    struct virtio_gpu_ctrl_hdr hdr; 
+    uint32_t resource_id; 
+    uint32_t format; 
+    uint32_t width; 
+    uint32_t height; 
 };
+
+struct virtio_gpu_mem_entry { 
+    uint64_t addr; 
+    uint32_t length; 
+    uint32_t padding; 
+};
+
+struct virtio_gpu_resource_attach_backing { 
+    struct virtio_gpu_ctrl_hdr hdr; 
+    uint32_t resource_id; 
+    uint32_t nr_entries; 
+    struct virtio_gpu_mem_entry entries[];
+};
+
+struct virtio_gpu_set_scanout { 
+    struct virtio_gpu_ctrl_hdr hdr; 
+    struct virtio_gpu_rect r; 
+    uint32_t scanout_id; 
+    uint32_t resource_id; 
+};
+
+struct virtio_gpu_transfer_to_host_2d { 
+    struct virtio_gpu_ctrl_hdr hdr; 
+    struct virtio_gpu_rect r; 
+    uint64_t offset; 
+    uint32_t resource_id; 
+    uint32_t padding; 
+};
+
+struct virtio_gpu_resource_flush { 
+    struct virtio_gpu_ctrl_hdr hdr; 
+    struct virtio_gpu_rect r; 
+    uint32_t resource_id; 
+    uint32_t padding; 
+};
+
+#endif /* VIRTGPU_H */

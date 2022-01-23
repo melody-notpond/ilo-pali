@@ -77,6 +77,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     phalloc_t phalloc = physical_allocator_options(&superdriver, 0);
     alloc_t allocator = create_physical_allocator(&phalloc);
 
+    // Get display info
     struct virtio_gpu_ctrl_hdr* header = alloc(&allocator, sizeof(struct virtio_gpu_ctrl_hdr));
     *header = (struct virtio_gpu_ctrl_hdr) {
         .type = VIRTIO_GPU_CMD_GET_DISPLAY_INFO,
@@ -104,15 +105,219 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     mmio->queue_notify = 0;
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
     if (type == 4) {
-        uart_printf("[gpu driver] got display info\n");
         if (info->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
             uart_printf("[gpu driver] failed to get display info. quitting");
             kill(getpid());
-        }
+        } else uart_printf("[gpu driver] got display info\n");
     } else {
         uart_printf("oh no\n");
+        kill(getpid());
     }
+
+    // Create 2D resource
+    struct virtio_gpu_resource_create_2d* create = alloc(&allocator, sizeof(struct virtio_gpu_resource_create_2d));
+    *create = (struct virtio_gpu_resource_create_2d) {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .resource_id = 1,
+        .format = VIRTIO_GPU_FORMAT_R8G8B8A8_UNORM,
+        .width = info->pmodes[0].r.width,
+        .height = info->pmodes[0].r.height,
+    };
+
+    *virtqueue_push_descriptor(controlq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = sizeof(struct virtio_gpu_ctrl_hdr),
+        .next = 0,
+    };
+    *virtqueue_push_descriptor(controlq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(create),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_gpu_resource_create_2d),
+        .next = d2,
+    };
+    virtqueue_push_available(controlq, d1);
+    mmio->queue_notify = 0;
+
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
+    if (type == 4) {
+        if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
+            uart_printf("[gpu driver] failed to create resource. quitting");
+            kill(getpid());
+        } else uart_printf("[gpu driver] created resource\n");
+    } else {
+        uart_printf("oh no\n");
+        kill(getpid());
+    }
+
+    // Attach frame buffer
+    size_t framebuffer_size = sizeof(uint32_t) * info->pmodes[0].r.width * info->pmodes[0].r.height;
+    uint32_t* framebuffer = alloc(&allocator, framebuffer_size);
+    struct virtio_gpu_resource_attach_backing* backing = alloc(&allocator, sizeof(struct virtio_gpu_resource_attach_backing) + sizeof(struct virtio_gpu_mem_entry));
+    *backing = (struct virtio_gpu_resource_attach_backing) {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .resource_id = 1,
+        .nr_entries = 1,
+    };
+    backing->entries[0] = (struct virtio_gpu_mem_entry) {
+        .addr = phalloc_get_physical(framebuffer),
+        .length = framebuffer_size,
+    };
+    *virtqueue_push_descriptor(controlq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = sizeof(struct virtio_gpu_ctrl_hdr),
+        .next = 0,
+    };
+    *virtqueue_push_descriptor(controlq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(backing),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_gpu_resource_attach_backing) + sizeof(struct virtio_gpu_mem_entry),
+        .next = d2,
+    };
+    virtqueue_push_available(controlq, d1);
+    mmio->queue_notify = 0;
+
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
+    if (type == 4) {
+        if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
+            uart_printf("[gpu driver] failed to attach framebuffer. quitting");
+            kill(getpid());
+        } else uart_printf("[gpu driver] attached framebuffer\n");
+    } else {
+        uart_printf("oh no\n");
+        kill(getpid());
+    }
+    dealloc(&allocator, backing);
+
+    // Set scanout
+    struct virtio_gpu_set_scanout* scanout = alloc(&allocator, sizeof(struct virtio_gpu_set_scanout));
+    *scanout = (struct virtio_gpu_set_scanout) {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_SET_SCANOUT,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .r = info->pmodes[0].r,
+        .scanout_id = 0,
+        .resource_id = 1,
+    };
+    *virtqueue_push_descriptor(controlq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = sizeof(struct virtio_gpu_ctrl_hdr),
+        .next = 0,
+    };
+    *virtqueue_push_descriptor(controlq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(scanout),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_gpu_set_scanout),
+        .next = d2,
+    };
+
+    virtqueue_push_available(controlq, d1);
+    mmio->queue_notify = 0;
+
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
+    if (type == 4) {
+        if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
+            uart_printf("[gpu driver] failed to set scanout. quitting");
+            kill(getpid());
+        } else uart_printf("[gpu driver] set scanout. display is initialised!\n");
+    } else {
+        uart_printf("oh no\n");
+        kill(getpid());
+    }
+    dealloc(&allocator, scanout);
+
+    for (size_t i = 0; i < framebuffer_size / sizeof(uint32_t); i++)
+        framebuffer[i] = 0xFFFF00FF;
+
+    // Transfer resource to host
+    struct virtio_gpu_transfer_to_host_2d* to_host = alloc(&allocator, sizeof(struct virtio_gpu_transfer_to_host_2d));
+    *to_host = (struct virtio_gpu_transfer_to_host_2d) {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .r = info->pmodes[0].r,
+        .offset = 0,
+        .resource_id = 1,
+    };
+    *virtqueue_push_descriptor(controlq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = sizeof(struct virtio_gpu_ctrl_hdr),
+        .next = 0,
+    };
+    *virtqueue_push_descriptor(controlq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(to_host),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_gpu_transfer_to_host_2d),
+        .next = d2,
+    };
+
+    virtqueue_push_available(controlq, d1);
+    mmio->queue_notify = 0;
+
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
+    dealloc(&allocator, to_host);
+
+    struct virtio_gpu_resource_flush* flush = alloc(&allocator, sizeof(struct virtio_gpu_resource_flush));
+    *flush = (struct virtio_gpu_resource_flush) {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_RESOURCE_FLUSH,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .r = info->pmodes[0].r,
+        .resource_id = 1,
+    };
+    *virtqueue_push_descriptor(controlq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = sizeof(struct virtio_gpu_ctrl_hdr),
+        .next = 0,
+    };
+    *virtqueue_push_descriptor(controlq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(flush),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_gpu_transfer_to_host_2d),
+        .next = d2,
+    };
+
+    virtqueue_push_available(controlq, d1);
+    mmio->queue_notify = 0;
+
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    virtqueue_pop_used(controlq);
+    virtqueue_pop_used(controlq);
+    dealloc(&allocator, to_host);
 
     while (1);
 }

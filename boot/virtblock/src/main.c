@@ -29,6 +29,43 @@ bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
     return false;
 }
 
+void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, virtio_queue_t* requestq, bool read, uint64_t sector_index, void* sector, size_t sector_count) {
+    if (sector == NULL)
+        sector = alloc(allocator, 512);
+    uint8_t* status = alloc(allocator, 1);
+    *status = 69;
+    struct virtio_blk_req* header = alloc(allocator, sizeof(struct virtio_blk_req));
+    *header = (struct virtio_blk_req) {
+        .type = read ? VIRTIO_BLK_T_IN : VIRTIO_BLK_T_OUT,
+        .sector = sector_index,
+    };
+
+    uint16_t d1, d2, d3;
+    *virtqueue_push_descriptor(requestq, &d3) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(status),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
+        .length = 1,
+        .next = 0,
+    };
+
+    *virtqueue_push_descriptor(requestq, &d2) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(sector),
+        .flags = (read ? VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY : 0) | VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = 512 * sector_count,
+        .next = d3,
+    };
+
+    *virtqueue_push_descriptor(requestq, &d1) = (virtio_descriptor_t) {
+        .addr = (void*) phalloc_get_physical(header),
+        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
+        .length = sizeof(struct virtio_blk_req),
+        .next = d2,
+    };
+
+    virtqueue_push_available(requestq, d1);
+    mmio->queue_notify = 0;
+}
+
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
     capability_t superdriver = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
 
@@ -42,7 +79,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     recv(true, &superdriver, &pid, &type, &data, &meta);
     subscribe_to_interrupt(data, &superdriver);
 
-    virtio_queue_t* requestq = NULL;
+    virtio_queue_t* requestq;
     void* input[] = { (void*) &requestq, (void*) &superdriver };
 
     // Get mmio address
@@ -78,90 +115,33 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     alloc_t allocator = create_physical_allocator(&phalloc);
 
     uint8_t* sector = alloc(&allocator, 512);
-    uint8_t* status = alloc(&allocator, 1);
-    *status = 69;
-    struct virtio_blk_req* header = alloc(&allocator, sizeof(struct virtio_blk_req));
-    *header = (struct virtio_blk_req) {
-        .type = VIRTIO_BLK_T_IN,
-        .sector = 0,
-    };
+    perform_block_operation(mmio, &allocator, requestq, true, 0, sector, 1);
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    volatile virtio_descriptor_t* header = virtqueue_pop_used(requestq);
+    volatile virtio_descriptor_t* sect_desc = virtqueue_get_descriptor(requestq, header->next);
+    volatile virtio_descriptor_t* status = virtqueue_get_descriptor(requestq, sect_desc->next);
 
-    uint16_t d1, d2, d3;
-    *virtqueue_push_descriptor(requestq, &d3) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(status),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
-        .length = 1,
-        .next = 0,
-    };
-
-    *virtqueue_push_descriptor(requestq, &d2) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(sector),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY | VIRTIO_DESCRIPTOR_FLAG_NEXT,
-        .length = 512,
-        .next = d3,
-    };
-
-    *virtqueue_push_descriptor(requestq, &d1) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(header),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
-        .length = sizeof(struct virtio_blk_req),
-        .next = d2,
-    };
-
-    virtqueue_push_available(requestq, d1);
-    mmio->queue_notify = 0;
-
-    recv(true, &superdriver, NULL, &type, NULL, NULL);
-    virtqueue_pop_used(requestq);
-    virtqueue_pop_used(requestq);
-    virtqueue_pop_used(requestq);
-
-    if (*status != 0) {
+    if (*(uint8_t*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr) != 0) {
         uart_printf("failed to read from sector 0. quitting\n");
         kill(getpid());
     } else uart_printf("read from sector 0\n");
+    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) header->addr));
+    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr));
 
-    *header = (struct virtio_blk_req) {
-        .type = VIRTIO_BLK_T_OUT,
-        .sector = 0,
-    };
-    sector[0] = 0x69;
-    sector[1] = 0x42;
-    *status = 69;
+    sector[0] = 0x42;
+    sector[1] = 0x69;
+    perform_block_operation(mmio, &allocator, requestq, false, 0, sector, 1);
+    recv(true, &superdriver, NULL, &type, &data, NULL);
+    header = virtqueue_pop_used(requestq);
+    sect_desc = virtqueue_get_descriptor(requestq, header->next);
+    status = virtqueue_get_descriptor(requestq, sect_desc->next);
 
-    *virtqueue_push_descriptor(requestq, &d3) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(status),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
-        .length = 1,
-        .next = 0,
-    };
-
-    *virtqueue_push_descriptor(requestq, &d2) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(sector),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
-        .length = 512,
-        .next = d3,
-    };
-
-    *virtqueue_push_descriptor(requestq, &d1) = (virtio_descriptor_t) {
-        .addr = (void*) phalloc_get_physical(header),
-        .flags = VIRTIO_DESCRIPTOR_FLAG_NEXT,
-        .length = sizeof(struct virtio_blk_req),
-        .next = d2,
-    };
-
-    virtqueue_push_available(requestq, d1);
-    mmio->queue_notify = 0;
-
-    recv(true, &superdriver, NULL, &type, NULL, NULL);
-    virtqueue_pop_used(requestq);
-    virtqueue_pop_used(requestq);
-    virtqueue_pop_used(requestq);
-
-    if (*status != 0) {
+    if (*(uint8_t*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr) != 0) {
         uart_printf("failed to write to sector 0. quitting\n");
         kill(getpid());
     } else uart_printf("wrote to sector 0\n");
+    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) header->addr));
+    dealloc(&allocator, (void*) phalloc_get_virtual(&phalloc, (uint64_t) status->addr));
 
     while(1);
 }

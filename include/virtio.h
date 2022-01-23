@@ -134,4 +134,8 @@ void virtqueue_push_available(virtio_queue_t* queue, uint16_t desc);
 // Pops a used descriptor from a queue.
 volatile virtio_descriptor_t* virtqueue_pop_used(virtio_queue_t* queue);
 
+// virtqueue_get_descriptor(virtio_queue_t*, uint16_t) -> volatile virtio_descriptor_t*
+// Gets a descriptor from the queue.
+volatile virtio_descriptor_t* virtqueue_get_descriptor(virtio_queue_t* queue, uint16_t desc);
+
 #endif /* VIRTIO_H */

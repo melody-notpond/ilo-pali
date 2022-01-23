@@ -239,6 +239,7 @@ void* phalloc_get_virtual(phalloc_t* phalloc, uint64_t physical) {
     while (used) {
         if (used->physical == physical)
             return used + 1;
+        used = used->next;
     }
 
     return NULL;

@@ -144,3 +144,11 @@ volatile virtio_descriptor_t* virtqueue_pop_used(virtio_queue_t* queue) {
 
     return used;
 }
+
+// virtqueue_get_descriptor(virtio_queue_t*, uint16_t) -> volatile virtio_descriptor_t*
+// Gets a descriptor from the queue.
+volatile virtio_descriptor_t* virtqueue_get_descriptor(virtio_queue_t* queue, uint16_t desc) {
+    if (desc > VIRTIO_RING_SIZE)
+        return NULL;
+    return &queue->desc[desc];
+}

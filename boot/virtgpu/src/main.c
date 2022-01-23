@@ -106,7 +106,6 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
     virtqueue_pop_used(controlq);
-    virtqueue_pop_used(controlq);
     if (type == 4) {
         if (info->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
             uart_printf("[gpu driver] failed to get display info. quitting");
@@ -195,7 +194,6 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
     virtqueue_pop_used(controlq);
-    virtqueue_pop_used(controlq);
     if (type == 4) {
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
             uart_printf("[gpu driver] failed to attach framebuffer. quitting");
@@ -237,7 +235,6 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     mmio->queue_notify = 0;
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
-    virtqueue_pop_used(controlq);
     virtqueue_pop_used(controlq);
     if (type == 4) {
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
@@ -284,7 +281,6 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
     virtqueue_pop_used(controlq);
-    virtqueue_pop_used(controlq);
     dealloc(&allocator, to_host);
 
     struct virtio_gpu_resource_flush* flush = alloc(&allocator, sizeof(struct virtio_gpu_resource_flush));
@@ -315,7 +311,6 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     mmio->queue_notify = 0;
 
     recv(true, &superdriver, NULL, &type, &data, NULL);
-    virtqueue_pop_used(controlq);
     virtqueue_pop_used(controlq);
     dealloc(&allocator, to_host);
 

@@ -1,6 +1,9 @@
 use crate::Capability;
 
+pub static PAGE_SIZE: usize = 4096;
+
 #[allow(clippy::too_many_arguments)]
+#[inline]
 unsafe fn syscall(
     syscall: u64,
     a1: u64,
@@ -316,7 +319,7 @@ pub enum LockableSize {
     U64,
 }
 
-pub trait Lockable: PartialEq + Eq + Copy + Clone + Sized {
+pub trait Lockable: Sized {
     fn size() -> LockableSize;
 
     fn into(self) -> u64;
@@ -399,6 +402,90 @@ impl Lockable for i64 {
 
     fn into(self) -> u64 {
         self as u64
+    }
+}
+
+use core::sync::atomic::{
+    AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering,
+};
+
+impl Lockable for AtomicU8 {
+    fn size() -> LockableSize {
+        LockableSize::U8
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicU16 {
+    fn size() -> LockableSize {
+        LockableSize::U16
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicU32 {
+    fn size() -> LockableSize {
+        LockableSize::U32
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicU64 {
+    fn size() -> LockableSize {
+        LockableSize::U64
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicI8 {
+    fn size() -> LockableSize {
+        LockableSize::U8
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicI16 {
+    fn size() -> LockableSize {
+        LockableSize::U16
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicI32 {
+    fn size() -> LockableSize {
+        LockableSize::U32
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
+    }
+}
+
+impl Lockable for AtomicI64 {
+    fn size() -> LockableSize {
+        LockableSize::U64
+    }
+
+    fn into(self) -> u64 {
+        self.load(Ordering::Acquire) as u64
     }
 }
 

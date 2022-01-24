@@ -1,10 +1,13 @@
 #![no_std]
 
+extern crate alloc;
+
 use std::syscalls::UartWrite;
 use std::fmt::Write;
+use alloc::string::String;
 
 fn main() {
-    let s = "hewo from rust!\n";
+    let s = String::from("hewo from rust!");
     let _ = writeln!(UartWrite, "msg: {}", s);
-    panic!("uwu");
+    drop(s);
 }

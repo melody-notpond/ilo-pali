@@ -5,23 +5,5 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[profile.minimal]
-panic = "unwind"
-inherits = "dev"
-
-[profile.default]
-panic = "unwind"
-inherits = "dev"
-
-[profile.complete]
-panic = "unwind"
-inherits = "dev"
-
-[profile.dev]
-panic = "unwind"
-
-[profile.release]
-panic = "unwind"
-
 [dependencies]
-no-std-compat = "0.4.1"
+no-std-compat = { version = "0.4.1", features = ["alloc"] }

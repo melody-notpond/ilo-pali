@@ -46,7 +46,18 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     kill(getpid());
 }
 
+int x;
+
 void _start(void* fdt) {
+    asm volatile(
+        ".option push\n"
+        ".option norelax\n"
+        "lla gp, __global_pointer$\n"
+        ".option pop\n"
+    );
+
+    x = 2;
+
     uart_printf("initd started\n");
 
     alloc_t page_alloc = (alloc_t) PAGE_ALLOC;
@@ -69,11 +80,8 @@ void _start(void* fdt) {
         .bytes = bytes,
     };
 
-    size_t size;
-    void* rust = read_file_full(&initrd, "fsd", &size);
-    spawn_process(rust, size, NULL, 0, NULL);
-
     capability_t cap;
+    bool spawned_fsd = false;
     for (str_t part = str_split(module_maps, S("\n"), STREMPTY); part.bytes != NULL; part = str_split(module_maps, S("\n"), part)) {
         str_t device = str_split(part, S(" "), STREMPTY);
         str_t module = str_split(part, S(" "), device);
@@ -81,9 +89,9 @@ void _start(void* fdt) {
         void* module_elf = NULL;
         size_t module_size = 0;
 
-        void* node = NULL;
-        while ((node = fdt_find(&tree, device, node))) {
-            uart_printf("found thing\n");
+        if (!spawned_fsd && str_equals(device, S("fs"))) {
+            spawned_fsd = true;
+            uart_printf("spawning\n");
             if (module_elf == NULL) {
                 char buffer[module.len + 1];
                 memcpy(buffer, module.bytes, module.len);
@@ -93,24 +101,44 @@ void _start(void* fdt) {
                 if (module_elf == NULL)
                     break;
             }
-
-            uart_printf("spawning\n");
-            uint64_t* p = alloc(&allocator, 3 * sizeof(uint64_t));
-            struct fdt_property reg = fdt_get_property(&tree, node, "reg");
-            struct fdt_property interrupts = fdt_get_property(&tree, node, "interrupts");
-            p[0] = be_to_le(64, reg.data);
-            p[1] = be_to_le(64, reg.data + 8); // TODO: use #address-cells and #size-cells
-            p[2] = be_to_le(interrupts.len * 8, interrupts.data);
-            spawn_process(module_elf, module_size, p, 3 * sizeof(uint64_t), &cap);
-            dealloc(&allocator, p);
+            spawn_process(module_elf, module_size, NULL, 0, &cap);
             struct thread_args* args = alloc(&allocator, sizeof(struct thread_args));
             args->cap = cap;
             args->alloc = allocator;
             args->initrd = &initrd;
             spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
-        }
+        } else {
+            void* node = NULL;
+            while ((node = fdt_find(&tree, device, node))) {
+                uart_printf("found thing\n");
+                if (module_elf == NULL) {
+                    char buffer[module.len + 1];
+                    memcpy(buffer, module.bytes, module.len);
+                    buffer[module.len] = '\0';
 
-        dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);
+                    module_elf = read_file_full(&initrd, buffer, &module_size);
+                    if (module_elf == NULL)
+                        break;
+                }
+
+                uart_printf("spawning\n");
+                uint64_t* p = alloc(&allocator, 3 * sizeof(uint64_t));
+                struct fdt_property reg = fdt_get_property(&tree, node, "reg");
+                struct fdt_property interrupts = fdt_get_property(&tree, node, "interrupts");
+                p[0] = be_to_le(64, reg.data);
+                p[1] = be_to_le(64, reg.data + 8); // TODO: use #address-cells and #size-cells
+                p[2] = be_to_le(interrupts.len * 8, interrupts.data);
+                spawn_process(module_elf, module_size, p, 3 * sizeof(uint64_t), &cap);
+                dealloc(&allocator, p);
+                struct thread_args* args = alloc(&allocator, sizeof(struct thread_args));
+                args->cap = cap;
+                args->alloc = allocator;
+                args->initrd = &initrd;
+                spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
+            }
+
+            dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);
+        }
     }
 
     while(1);

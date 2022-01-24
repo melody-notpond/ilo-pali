@@ -4,10 +4,20 @@ extern crate alloc;
 
 use std::syscalls::UartWrite;
 use std::fmt::Write;
-use alloc::string::String;
+use std::env::get_capability;
+use std::syscalls::{self, Time, MessageType};
 
 fn main() {
-    let s = String::from("hewo from rust!");
-    let _ = writeln!(UartWrite, "msg: {}", s);
-    drop(s);
+    let _ = writeln!(UartWrite, "spawned fsd!");
+    if let Some(cap) = get_capability() {
+        syscalls::send(true, cap, MessageType::Signal, 0, 0).unwrap();
+        let _ = writeln!(UartWrite, "uwu");
+
+        loop {
+            syscalls::sleep(Time {
+                seconds: 0,
+                micros: 10,
+            });
+        }
+    }
 }

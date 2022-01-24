@@ -131,14 +131,14 @@ pub fn dealloc_page<T>(addr: *mut T, count: usize) -> Result<(), DeallocPageErro
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pid(u64);
 
 pub fn getpid() -> Pid {
     Pid(unsafe { syscall(4, 0, 0, 0, 0, 0, 0, 0).0 })
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Uid(u64);
 
 #[derive(Debug, Clone, Copy)]
@@ -235,7 +235,7 @@ pub enum SendError {
     MessageQueueFull,
 }
 
-pub fn send<T>(
+pub fn send(
     block: bool,
     channel: Capability,
     type_: MessageType,

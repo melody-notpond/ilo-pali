@@ -22,6 +22,8 @@ SECTIONS
     . = ALIGN(4096);
     PROVIDE(sdata_start = .);
     .sdata : { *(.sdata) }
+    .sdata : { *(.bss) }
+    .sdata : { *(.sbss) }
     .debug : { *(.debug) }
     PROVIDE(sdata_end = .);
 
@@ -31,6 +33,8 @@ SECTIONS
     PROVIDE(stack_start = .);
     . += 0x8000;
     PROVIDE(stack_top = .);
+
+    . += 0x1000;
 
     /* Pages */
     . = ALIGN(4096);

@@ -131,6 +131,8 @@ void incr_page_ref_count(void* page, size_t count) {
 // dealloc_pages(void*, size_t) -> void
 // Decrements the reference count of the selected pages.
 void dealloc_pages(void* page, size_t count) {
+    if (page > (void*) KERNEL_SPACE_OFFSET)
+        page = kernel_space_virt2physical(page);
     uint16_t* rc = page_ref_count(page);
     if (rc == NULL)
         return;

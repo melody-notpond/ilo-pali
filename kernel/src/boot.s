@@ -9,6 +9,12 @@ _start:
 	la sp, stack_top
 	mv fp, sp
 
+    # Init gp, whatever that is
+    .option push
+    .option norelax
+    lla gp, __global_pointer$
+    .option pop
+
     # Init interrupt handler
     la t0, handle_interrupt
     csrw stvec, t0

@@ -2,8 +2,6 @@
 #include "mmu.h"
 #include <stdbool.h>
 
-#define KERNEL_SPACE_OFFSET 0xffffffc000000000
-
 // kernel_space_virt2physical(void*) -> void*
 // Converts a kernel space virtual address into a physical address.
 void* kernel_space_virt2physical(void* virtual) {

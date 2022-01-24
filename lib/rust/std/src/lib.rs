@@ -194,7 +194,7 @@ pub struct Capability(u128);
 
 static mut ARGS: *const u8 = ptr::null();
 static mut ARG_SIZE: usize = 0;
-static mut CAPABILITY: Capability = Capability(0);
+static mut CAPABILITY: Option<Capability> = None;
 
 pub mod env {
     pub fn get_args<T>() -> Option<&'static T> {
@@ -207,7 +207,7 @@ pub mod env {
         }
     }
 
-    pub fn get_capability() -> super::Capability {
+    pub fn get_capability() -> Option<super::Capability> {
         unsafe { super::CAPABILITY }
     }
 }
@@ -221,7 +221,9 @@ mod entry {
 
         super::ARGS = args;
         super::ARG_SIZE = size;
-        super::CAPABILITY = super::Capability((cap_high as u128) << 64 | cap_low as u128);
+        if cap_high != 0 || cap_low != 0 {
+            super::CAPABILITY = Some(super::Capability((cap_high as u128) << 64 | cap_low as u128));
+        }
 
         main(0, core::ptr::null());
 

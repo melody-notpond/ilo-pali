@@ -6,6 +6,7 @@
 
 #include "fdt.h"
 
+#define KERNEL_SPACE_OFFSET 0xffffffc000000000
 #define MMU_UNWRAP(t, v) ((mmu_level_##t##_t*) (((v) << 2) & ~0xfff))
 
 #define MMU_BIT_VALID       0x01

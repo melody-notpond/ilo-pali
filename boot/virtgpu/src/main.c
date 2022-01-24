@@ -10,7 +10,7 @@ uint32_t features_callback(const volatile void* _config, uint32_t features) {
 
 virtual_physical_pair_t alloc_queue(void* data, size_t size) {
     capability_t* initd = data;
-    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
+    return alloc_pages_physical(NULL, (size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
 }
 
 bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
@@ -243,8 +243,9 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     }
     dealloc(&allocator, scanout);
 
-    for (size_t i = 0; i < framebuffer_size / sizeof(uint32_t); i++)
+    for (size_t i = 0; i < framebuffer_size / sizeof(uint32_t); i++) {
         framebuffer[i] = 0xFFFF00FF;
+    }
 
     // Transfer resource to host
     struct virtio_gpu_transfer_to_host_2d* to_host = alloc(&allocator, sizeof(struct virtio_gpu_transfer_to_host_2d));

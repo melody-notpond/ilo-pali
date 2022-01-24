@@ -13,7 +13,7 @@ uint32_t features_callback(const volatile void* _config, uint32_t features) {
 
 virtual_physical_pair_t alloc_queue(void* data, size_t size) {
     capability_t* initd = data;
-    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
+    return alloc_pages_physical(NULL, (size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, initd);
 }
 
 bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
@@ -97,6 +97,26 @@ void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t
         mutex_unlock(&allocator_guard);
         mutex_unlock(&requestq_guard);
     }
+
+    kill(getpid());
+}
+
+struct handle_process_args {
+    mutex_t* alloc_mutex;
+    mutex_t* requestq_mutex;
+};
+
+void handle_process(void* args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
+    struct handle_process_args* args_struct = args;
+
+    capability_t process = (capability_t) cap_high << 64 | (capability_t) cap_low;
+    pid_t pid;
+    int type;
+    uint64_t data;
+    uint64_t meta;
+
+    while (!recv(true, &process, &pid, &type, &data, &meta)) {
+    }
 }
 
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
@@ -164,14 +184,18 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     capability_t capability;
     spawn_thread(handle_interrupts, &args_struct, sizeof(struct handle_interrupts_args), &capability);
 
-    mutex_guard_t alloc_guard = mutex_lock(alloc_mutex);
-    uint8_t* sector = alloc(alloc_guard.data, 512);
-    perform_block_operation(mmio, &alloc_guard, requestq_mutex, true, 0, sector, 1);
+    struct handle_process_args args = {
+        .alloc_mutex = alloc_mutex,
+        .requestq_mutex = requestq_mutex,
+    };
 
-    sector[0] = 0x42;
-    sector[1] = 0x69;
-    alloc_guard = mutex_lock(alloc_mutex);
-    perform_block_operation(mmio, &alloc_guard, requestq_mutex, false, 0, sector, 1);
+    while(!recv(true, &superdriver, &pid, &type, &data, &meta)) {
+        if (type == MSG_TYPE_SIGNAL && data == 0) {
+            capability_t cap;
+            spawn_thread(handle_process, &args, sizeof(struct handle_process_args), &cap);
+            send(true, &superdriver, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
+        }
+    }
 
-    while(1);
+    kill(getpid());
 }

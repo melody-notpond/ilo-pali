@@ -27,9 +27,9 @@ void uart_write(char* s, size_t length);
 #define PERM_WRITE  0x02
 #define PERM_EXEC   0x01
 
-// alloc_page(void* addr, size_t count, int permissions) -> void* addr
-// Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
-void* alloc_page(void* addr, size_t count, int permissions);
+// alloc_page(size_t count, int permissions) -> void* addr
+// Allocates `count` pages of memory. Returns NULL on failure. Write and execute cannot both be set at the same time.
+void* alloc_page(size_t count, int permissions);
 
 // page_permissions(void* addr, size_t count, int permissions) -> int status
 // Modifies the permissions of the given pages. Returns 0 on success, 1 if the page was never allocated, and 2 if invalid permissions.
@@ -118,8 +118,8 @@ uint64_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* arg
 // Subscribes to an interrupt.
 void subscribe_to_interrupt(uint32_t id, capability_t* capability);
 
-// alloc_pages_physical(size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
-// Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed.
-virtual_physical_pair_t alloc_pages_physical(size_t count, int permissions, capability_t* capability);
+// alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
+// Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed. If addr is not NULL, returns addresses that contain that address.
+virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability);
 
 #endif /* SYSCALL_H */

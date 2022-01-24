@@ -22,26 +22,8 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     int type;
     uint64_t data;
     uint64_t meta;
-    void* addr;
     while (!recv(true, &capability, &pid, &type, &data, &meta)) {
-        if (type == MSG_TYPE_SIGNAL) {
-            switch (data) {
-                case 0:
-                    addr = (void*) meta;
-                    break;
-
-                case 1: {
-                    uint64_t* alloced = alloc_page(addr, meta, PERM_READ | PERM_WRITE);
-                    send(true, &capability, MSG_TYPE_POINTER, (uint64_t) alloced, meta * PAGE_SIZE);
-                    dealloc_page(alloced, meta);
-                    break;
-                }
-
-                default:
-                    uart_printf("unknown signal %x\n", data);
-                    break;
-            }
-        } else if (type == MSG_TYPE_DATA) {
+        if (type == MSG_TYPE_DATA) {
             char buffer[meta + 1];
             memcpy(buffer, (void*) data, meta);
             buffer[meta] = '\0';
@@ -86,6 +68,10 @@ void _start(void* fdt) {
         .len = len,
         .bytes = bytes,
     };
+
+    size_t size;
+    void* rust = read_file_full(&initrd, "fsd", &size);
+    spawn_process(rust, size, NULL, 0, NULL);
 
     capability_t cap;
     for (str_t part = str_split(module_maps, S("\n"), STREMPTY); part.bytes != NULL; part = str_split(module_maps, S("\n"), part)) {

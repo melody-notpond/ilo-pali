@@ -151,12 +151,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // alloc_page(void* addr, size_t count, int permissions) -> void* addr
-                    // Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
+                    // alloc_page(size_t count, int permissions) -> void* addr
+                    // Allocates `count` pages of memory. Returns NULL on failure. Write and execute cannot both be set at the same time.
                     case 1: {
-                        void* addr = (void*) trap->xs[REGISTER_A1];
-                        size_t count = trap->xs[REGISTER_A2];
-                        int perms = trap->xs[REGISTER_A3];
+                        size_t count = trap->xs[REGISTER_A1];
+                        int perms = trap->xs[REGISTER_A2];
                         int flags = 0;
                         process_t* process = get_process(trap->pid);
 
@@ -172,38 +171,26 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (perms & 0x04)
                             flags |= MMU_BIT_READ;
 
-                        if (addr == NULL) {
-                            process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
-                            addr = page_holder->last_virtual_page;
+                        process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                        void* addr = page_holder->last_virtual_page;
 
-                            for (size_t i = 0; i < count; i++) {
-                                void* page = mmu_alloc(process->mmu_data, page_holder->last_virtual_page, flags | MMU_BIT_USER);
+                        for (size_t i = 0; i < count; i++) {
+                            void* page = mmu_alloc(process->mmu_data, page_holder->last_virtual_page, flags | MMU_BIT_USER);
 
-                                if (!page) {
-                                    page_holder->last_virtual_page -= PAGE_SIZE * i;
-                                    trap->xs[REGISTER_A0] = 0;
+                            if (!page) {
+                                page_holder->last_virtual_page -= PAGE_SIZE * i;
+                                trap->xs[REGISTER_A0] = 0;
 
-                                    for (size_t j = 0; j < i; j++) {
-                                        mmu_remove(process->mmu_data, addr + j * PAGE_SIZE);
-                                    }
-
-                                    return trap;
+                                for (size_t j = 0; j < i; j++) {
+                                    dealloc_pages(mmu_remove(process->mmu_data, addr + j * PAGE_SIZE), 1);
                                 }
 
-                                page_holder->last_virtual_page += PAGE_SIZE;
+                                return trap;
                             }
-                            trap->xs[REGISTER_A0] = (uint64_t) addr;
-                        } else if (trap->pid == 0 || process->thread_source == 0) {
-                            if (addr + count * PAGE_SIZE < get_memory_start()) {
-                                process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
-                                for (size_t i = 0; i < count; i++) {
-                                    mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
-                                }
-                                trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page;
-                                page_holder->last_virtual_page += PAGE_SIZE * count;
-                            } else trap->xs[REGISTER_A0] = 0;
-                        } else trap->xs[REGISTER_A0] = 0;
 
+                            page_holder->last_virtual_page += PAGE_SIZE;
+                        }
+                        trap->xs[REGISTER_A0] = (uint64_t) addr;
                         break;
                     }
 
@@ -354,7 +341,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (capability != NULL) {
                             capability_t b;
-                            create_capability(capability, &b);
+                            create_capability(capability, trap->pid, &b, pid);
                             get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
                             get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
                         }
@@ -619,7 +606,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (capability != NULL) {
                             capability_t b;
-                            create_capability(capability, &b);
+                            create_capability(capability, trap->pid, &b, pid);
                             get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
                             get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
                         }
@@ -645,12 +632,13 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // alloc_pages_physical(size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
-                    // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed.
+                    // alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
+                    // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed. If addr is not NULL, returns addresses that contain that address.
                     case 15: {
-                        size_t count = trap->xs[REGISTER_A1];
-                        int perms = trap->xs[REGISTER_A2];
-                        capability_t* cap = (void*) trap->xs[REGISTER_A3];
+                        void* addr = (void*) trap->xs[REGISTER_A1];
+                        size_t count = trap->xs[REGISTER_A2];
+                        int perms = trap->xs[REGISTER_A3];
+                        capability_t* cap = (void*) trap->xs[REGISTER_A4];
 
                         process_t* process = get_process(trap->pid);
                         if (cap == NULL && process->thread_source != 0 && trap->pid != 0) {
@@ -680,21 +668,33 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (perms & 0x04)
                             flags |= MMU_BIT_READ;
 
-                        void* physical = alloc_pages(count);
-                        if (physical == 0) {
-                            trap->xs[REGISTER_A0] = 0;
-                            trap->xs[REGISTER_A1] = 0;
-                            break;
-                        }
+                        if (addr == NULL) {
+                            void* physical = alloc_pages(count);
+                            if (physical == 0) {
+                                trap->xs[REGISTER_A0] = 0;
+                                trap->xs[REGISTER_A1] = 0;
+                                break;
+                            }
 
-                        process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
-                        for (size_t i = 0; i < count; i++) {
-                            mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
-                        }
+                            process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                            for (size_t i = 0; i < count; i++) {
+                                mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, physical + i * PAGE_SIZE, flags | MMU_BIT_USER);
+                            }
 
-                        trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page; 
-                        trap->xs[REGISTER_A1] = (uint64_t) physical;
-                        page_holder->last_virtual_page += PAGE_SIZE * count;
+                            trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page; 
+                            trap->xs[REGISTER_A1] = (uint64_t) physical;
+                            page_holder->last_virtual_page += PAGE_SIZE * count;
+                        } else {
+                            if (addr + count * PAGE_SIZE < get_memory_start()) {
+                                process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                                for (size_t i = 0; i < count; i++) {
+                                    mmu_map(process->mmu_data, page_holder->last_virtual_page + i * PAGE_SIZE, addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
+                                }
+                                trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page;
+                                trap->xs[REGISTER_A1] = (uint64_t) addr / PAGE_SIZE * PAGE_SIZE;
+                                page_holder->last_virtual_page += PAGE_SIZE * count;
+                            } else trap->xs[REGISTER_A0] = 0;
+                        }
                         break;
                     }
 

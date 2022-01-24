@@ -5,9 +5,14 @@ EMU    = qemu-system-riscv64
 
 CODE = src/
 
-EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -device virtio-blk-device,scsi=off,drive=root -s -nographic
+EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -device virtio-blk-device,scsi=off,drive=root -s
 ifdef WAIT_GDB
 	EFLAGS += -S
+endif
+ifdef GRAPHIC
+	EFLAGS += -serial stdio
+else
+	EFLAGS += -nographic
 endif
 
 .PHONY: all clean run gdb kernel boot build boot_dir lib lib_dir root root_dir discs idisc rdisc
@@ -16,6 +21,7 @@ all: kernel boot root
 
 clean:
 	-rm -r build/
+	cd boot/fsd && cargo clean
 
 kernel: build
 	$(MAKE) -C kernel/
@@ -24,6 +30,8 @@ run:
 	$(EMU) $(EFLAGS) -drive if=none,format=raw,file=build/root.iso,id=root -kernel build/kernel -initrd build/initrd
 
 boot: boot_dir lib
+	cd boot/fsd/ && cargo build $(CARGO_FLAGS)
+	cp boot/fsd/target/riscv64gc-unknown-none-elf/debug/fsd build/boot/
 	$(MAKE) -C boot/initd/
 	$(MAKE) -C boot/virtd/
 	$(MAKE) -C boot/virtblock/

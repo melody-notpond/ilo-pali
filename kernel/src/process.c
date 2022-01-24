@@ -61,16 +61,25 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
         if (flags_raw & 0x4)
             flags |= MMU_BIT_READ;
 
-        uint64_t page_count = (program_header->memory_size + PAGE_SIZE - 1) / PAGE_SIZE;
+        size_t offset = program_header->virtual_addr % PAGE_SIZE;
+        uint64_t page_count = (program_header->memory_size + offset + PAGE_SIZE - 1) / PAGE_SIZE;
         for (uint64_t i = 0; i < page_count; i++) {
             void* virtual = (void*) program_header->virtual_addr + i * PAGE_SIZE;
-            void* page = kernel_space_phys2virtual(mmu_alloc(top, virtual, flags | MMU_BIT_USER));
+            void* page = mmu_alloc(top, virtual, flags | MMU_BIT_USER);
+            if (page == NULL) {
+                intptr_t p = mmu_walk(top, virtual);
+                if ((p & MMU_BIT_USER) == 0)
+                    continue;
+                page = MMU_UNWRAP(4, p);
+            }
+
+            page = kernel_space_phys2virtual(page);
 
             if ((page_t*) virtual > max_page)
                 max_page = virtual;
 
             if (i * PAGE_SIZE < program_header->file_size) {
-                memcpy(page, (void*) elf->header + program_header->offset + i * PAGE_SIZE, (program_header->file_size < (i + 1) * PAGE_SIZE ? program_header->file_size - i * PAGE_SIZE : PAGE_SIZE));
+                memcpy(page + offset, (void*) elf->header + program_header->offset + i * PAGE_SIZE, (program_header->file_size < (i + 1) * PAGE_SIZE ? program_header->file_size - i * PAGE_SIZE : PAGE_SIZE));
             }
         }
     }
@@ -156,9 +165,9 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     return pid;
 }
 
-// create_capability(capability_t*, capability_t*) -> void
+// create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
-void create_capability(capability_t* a, capability_t* b) {
+void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
     *a = 0;
     *b = 0;
     do {
@@ -171,7 +180,7 @@ void create_capability(capability_t* a, capability_t* b) {
         .start = 0,
         .end = 0,
         .len = 0,
-        .receiver = -1,
+        .receiver = pa,
     });
 
     do {
@@ -185,7 +194,7 @@ void create_capability(capability_t* a, capability_t* b) {
         .end = 0,
         .len = 0,
         .sender = *a,
-        .receiver = -1,
+        .receiver = pb,
     });
 
     ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;

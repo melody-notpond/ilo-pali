@@ -1,0 +1,6 @@
+[toolchain]
+channel = "nightly"
+components = [ "rustfmt", "rustc-dev", "clippy" ]
+targets = [ "riscv64gc-unknown-none-elf" ]
+profile = "minimal"
+

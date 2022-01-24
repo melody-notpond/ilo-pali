@@ -16,7 +16,7 @@ void uart_printf(char* format, ...) {
 }
 
 void* page_allocator_alloc(void* _a, uint64_t _b, size_t size) {
-    size_t* p = alloc_page(NULL, (size + sizeof(size_t) + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE);
+    size_t* p = alloc_page((size + sizeof(size_t) + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE);
     *p = size;
     return p + 1;
 }

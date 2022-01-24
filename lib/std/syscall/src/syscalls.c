@@ -17,8 +17,8 @@ void uart_write(char* s, size_t length) {
 
 // alloc_page(void* addr, size_t count, int permissions) -> void* addr
 // Allocates `count` pages of memory containing addr. If addr is NULL, then it allocates the next available page. Returns NULL on failure. Write and execute cannot both be set at the same time.
-void* alloc_page(void* addr, size_t count, int permissions) {
-    return (void*) syscall(1, (uint64_t) addr, count, permissions, 0, 0, 0).first;
+void* alloc_page(size_t count, int permissions) {
+    return (void*) syscall(1, count, permissions, 0, 0, 0, 0).first;
 }
 
 // page_permissions(void* addr, size_t count, int permissions) -> int status
@@ -127,8 +127,8 @@ void subscribe_to_interrupt(uint32_t id, capability_t* capability) {
 
 // alloc_pages_physical(size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
 // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed.
-virtual_physical_pair_t alloc_pages_physical(size_t count, int permissions, capability_t* capability) {
-    dual_t dual = syscall(15, count, permissions, (uint64_t) capability, 0, 0, 0);
+virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) {
+    dual_t dual = syscall(15, (uint64_t) addr, count, permissions, (uint64_t) capability, 0, 0);
     return (virtual_physical_pair_t) {
         .virtual_ = (void*) dual.first,
         .physical = dual.second,

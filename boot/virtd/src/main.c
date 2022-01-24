@@ -8,17 +8,14 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
 
     capability_t initd = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
     uint64_t* args64 = args;
-    send(true, &initd, MSG_TYPE_SIGNAL, 0, args64[0]);
-    send(true, &initd, MSG_TYPE_SIGNAL, 1, args64[1] / PAGE_SIZE);
+    size_t mmio_size = args64[1];
+    volatile virtio_mmio_t* mmio = alloc_pages_physical((void*) args64[0], mmio_size / PAGE_SIZE, PERM_READ | PERM_WRITE, &initd).virtual_;
 
     pid_t pid;
     int type;
     uint64_t data;
     uint64_t meta;
-    recv(true, &initd, &pid, &type, &data, &meta);
 
-    volatile virtio_mmio_t* mmio = (void*) data;
-    size_t mmio_size = meta;
     capability_t subdriver;
     switch (mmio->device_id) {
         case 0:
@@ -56,6 +53,5 @@ void _start(void* args, size_t arg_size, uint64_t cap_high, uint64_t cap_low) {
             break;
     }
 
-    while (!recv(true, &subdriver, &pid, &type, &data, &meta)) {
-    }
+    while(1);
 }

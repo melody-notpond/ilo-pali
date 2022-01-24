@@ -153,7 +153,7 @@ void* read_file_full(fat16_fs_t* fs, char* name, size_t* size_ptr) {
     if (entry == NULL)
         return NULL;
     size_t page_count = (entry->file.file_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    void* data = alloc_page(NULL, page_count, PERM_READ | PERM_WRITE);
+    void* data = alloc_page(page_count, PERM_READ | PERM_WRITE);
 
     void* cluster_data = NULL;
     size_t size = fs->sectors_per_cluster * fs->bytes_per_sector;

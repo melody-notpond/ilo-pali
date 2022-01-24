@@ -35,7 +35,7 @@ struct s_phalloc_bucket* phalloc_format_unused(virtual_physical_pair_t data, siz
 }
 
 virtual_physical_pair_t phalloc_alloc_helper(capability_t* cap, size_t size) {
-    return alloc_pages_physical((size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, cap);
+    return alloc_pages_physical(NULL, (size + PAGE_SIZE - 1) / PAGE_SIZE, PERM_READ | PERM_WRITE, cap);
 }
 
 void* phalloc_alloc(void* data, uint64_t origin, size_t size) {

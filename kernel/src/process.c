@@ -52,6 +52,10 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     page_t* max_page = NULL;
     for (size_t i = 0; i < elf->header->program_header_num; i++) {
         elf_program_header_t* program_header = get_elf_program_header(elf, i);
+
+        if (program_header->type != 1)
+            continue;
+
         uint32_t flags_raw = program_header->flags;
         int flags = 0;
         if (flags_raw & 0x1)
@@ -65,7 +69,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
         uint64_t page_count = (program_header->memory_size + offset + PAGE_SIZE - 1) / PAGE_SIZE;
         for (uint64_t i = 0; i < page_count; i++) {
             void* virtual = (void*) program_header->virtual_addr + i * PAGE_SIZE;
-            void* page = mmu_alloc(top, virtual, flags | MMU_BIT_USER);
+            void* page = mmu_alloc(top, virtual - offset, flags | MMU_BIT_USER);
             if (page == NULL) {
                 intptr_t p = mmu_walk(top, virtual);
                 if ((p & MMU_BIT_USER) == 0)
@@ -78,8 +82,20 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
             if ((page_t*) virtual > max_page)
                 max_page = virtual;
 
-            if (i * PAGE_SIZE < program_header->file_size) {
-                memcpy(page + offset, (void*) elf->header + program_header->offset + i * PAGE_SIZE, (program_header->file_size < (i + 1) * PAGE_SIZE ? program_header->file_size - i * PAGE_SIZE : PAGE_SIZE));
+            size_t size;
+            if (program_header->file_size != 0) {
+                if (program_header->file_size + offset < i * PAGE_SIZE) {
+                    if ((i - 1) * PAGE_SIZE < program_header->file_size + offset)
+                        size = program_header->file_size - (i - 1) * PAGE_SIZE;
+                    else size = 0;
+                } else size = PAGE_SIZE;
+                void* source = (void*) elf->header + program_header->offset + i * PAGE_SIZE;
+                if (i == 0) {
+                    page += offset;
+                    if (size > 0)
+                        size -= offset;
+                } else source -= offset;
+                memcpy(page, source, size);
             }
         }
     }

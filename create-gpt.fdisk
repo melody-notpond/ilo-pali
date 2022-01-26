@@ -1,0 +1,9 @@
+label: gpt
+label-id: 8188E0EC-1152-C045-AEC8-64047E249332
+device: sda
+unit: sectors
+first-lba: 2048
+last-lba: 2097118
+sector-size: 512
+
+root : start=        2048, size=     2095071, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=BFC7010F-1470-B648-887E-5DD4153D79D7

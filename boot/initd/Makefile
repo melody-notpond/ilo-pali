@@ -5,7 +5,7 @@ ifeq ($(CC),clang)
 	CFLAGS += -target $(TARGET) -mno-relax -Wno-unused-command-line-argument
 endif
 
-LIBS = -lfdt -lfat -ljoin -lsyscall -liter -lalloc -lformat -lcore
+LIBS = -lfdt -lfat -lsync -ljoin -lsyscall -liter -lalloc -lformat -lcore
 CODE = src/
 
 .PHONY: all

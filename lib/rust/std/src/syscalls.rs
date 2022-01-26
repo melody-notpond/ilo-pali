@@ -131,14 +131,14 @@ pub fn dealloc_page<T>(addr: *mut T, count: usize) -> Result<(), DeallocPageErro
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Pid(u64);
 
 pub fn getpid() -> Pid {
     Pid(unsafe { syscall(4, 0, 0, 0, 0, 0, 0, 0).0 })
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Uid(u64);
 
 #[derive(Debug, Clone, Copy)]
@@ -270,6 +270,7 @@ pub fn send(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct Message {
     pub pid: Pid,
     pub type_: MessageType,
@@ -521,18 +522,44 @@ where
     }
 }
 
-pub fn spawn_thread<T>(
-    func: fn(*const T, usize, u64, u64),
-    args: *const T,
-    arg_size: usize,
+unsafe extern "C" fn thread_unpack_args<F, T>(args: *const u8, _size: usize, cap_high: u64, cap_low: u64) -> !
+    where F: FnOnce(Option<Capability>) -> T,
+          F: Send + 'static
+{
+    let cap = if cap_high != 0 || cap_low != 0 {
+        Some(Capability::from(cap_low as u128 | (cap_high as u128) << 64))
+    } else {
+        None
+    };
+
+    use super::boxed::Box;
+    let func = Box::from_raw(args as *mut F);
+
+    func.call_once((cap,));
+
+    let _ = kill(getpid());
+    unreachable!();
+}
+
+pub fn spawn_thread<F, T>(
+    func: F,
     capability: Option<&mut Capability>,
-) -> Option<Pid> {
+) -> Option<Pid>
+    where F: FnOnce(Option<Capability>) -> T,
+          F: Send + 'static
+{
+    let size = super::mem::size_of::<F>();
+
+    use super::Box;
+    let func = Box::new(func);
+    let func = Box::into_raw(func);
+
     match unsafe {
         syscall(
             13,
-            func as *const u8 as u64,
-            args as u64,
-            arg_size as u64,
+            thread_unpack_args::<F, T> as *const u8 as u64,
+            func as u64,
+            size as u64,
             capability.map(|v| v as *mut Capability as u64).unwrap_or(0),
             0,
             0,
@@ -540,7 +567,12 @@ pub fn spawn_thread<T>(
         )
         .0
     } {
-        u64::MAX => None,
+        u64::MAX => {
+            unsafe {
+                Box::from_raw(func);
+            }
+            None
+        }
         v => Some(Pid(v)),
     }
 }
@@ -580,4 +612,18 @@ pub fn alloc_pages_physical<T>(
     };
 
     (virtual_ as *mut T, physical)
+}
+
+pub enum TransferCapabilityError {
+    ProcessDoesNotExist
+}
+
+pub fn transfer_capability(cap: Capability, pid: Pid) -> Result<(), TransferCapabilityError> {
+    match unsafe {
+        syscall(16, &cap as *const Capability as u64, pid.0, 0, 0, 0, 0, 0).0
+    } {
+        0 => Ok(()),
+        1 => Err(TransferCapabilityError::ProcessDoesNotExist),
+        _ => unreachable!(),
+    }
 }

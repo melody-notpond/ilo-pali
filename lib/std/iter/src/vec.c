@@ -1,19 +1,5 @@
 #include "iter/vec.h"
 
-struct s_vec {
-    size_t len;
-    size_t cap;
-    size_t item_size;
-    void* bytes;
-    alloc_t* A;
-};
-
-struct s_slice {
-    size_t len;
-    size_t item_size;
-    void* bytes;
-};
-
 // empty_vec(alloc_t*, size_t) -> vec_t
 // Creates an empty vec. Note that the vec macro is more convenient to use.
 vec_t empty_vec(alloc_t* A, size_t item_size) {
@@ -53,7 +39,7 @@ slice_t slice_from_vec(vec_t* v) {
 // slice_slice(slice_t, size_t, size_t) -> slice_t
 // Creates a slice from another slice.
 slice_t slice_slice(slice_t s, size_t start, size_t end) {
-    if (start > end || start > s.len * s.item_size || end > s.len * s.item_size)
+    if (start > end || start > s.len || end > s.len)
         return (slice_t) { 0 };
 
     return (slice_t) {
@@ -82,11 +68,11 @@ void* slice_get(slice_t s, size_t i) {
 // vec_push(vec_t*, void*) -> void
 // Pushes an item onto a vec.
 void vec_push(vec_t* v, void* item) {
-    if (v->len + v->item_size > v->cap) {
+    if (v->len * v->item_size + v->item_size > v->cap) {
         if (v->cap == 0)
             v->cap = v->item_size * 8;
         else v->cap <<= 1;
-        v->bytes = alloc_resize(v->A, v->bytes, v->cap);
+        v->bytes = alloc_resize(v->A, v->bytes, v->cap * v->item_size);
     }
     memcpy(v->bytes + v->len * v->item_size, item, v->item_size);
     v->len += v->item_size;

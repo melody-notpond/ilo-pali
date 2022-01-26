@@ -7,10 +7,20 @@
 #define vec(A, T) (empty_vec(A, sizeof(T)))
 
 // Represents a vector.
-typedef struct s_vec vec_t;
+typedef struct {
+    size_t len;
+    size_t cap;
+    size_t item_size;
+    void* bytes;
+    alloc_t* A;
+} vec_t;
 
 // Represents a slice.
-typedef struct s_slice slice_t;
+typedef struct {
+    size_t len;
+    size_t item_size;
+    void* bytes;
+} slice_t;
 
 // empty_vec(alloc_t*, size_t) -> vec_t
 // Creates an empty vec. Note that the vec macro is more convenient to use.

@@ -339,7 +339,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         pid_t pid = spawn_process_from_elf(trap->pid, &elf, 2, args, args_size);
 
-                        if (capability != NULL) {
+                        if (capability != NULL && pid != (pid_t) -1) {
                             capability_t b;
                             create_capability(capability, trap->pid, &b, pid);
                             get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
@@ -604,7 +604,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         capability_t* capability = (void*) trap->xs[REGISTER_A4];
                         pid_t pid = spawn_thread_from_func(trap->pid, func, 2, data, size);
 
-                        if (capability != NULL) {
+                        if (capability != NULL && pid != (pid_t) -1) {
                             capability_t b;
                             create_capability(capability, trap->pid, &b, pid);
                             get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
@@ -698,10 +698,28 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // deny_capability(capability_t* capability) -> void
-                    // Denies the given capability. If the passed in capability is invalid, this kills the process.
-                    case 16:
+                    // transfer_capability(capability_t* capability, pid_t pid) -> int status
+                    // Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid. Returns 0 on success and 1 if the process doesn't exist.
+                    case 16: {
+                        capability_t* cap = (void*) trap->xs[REGISTER_A1];
+                        pid_t pid = trap->xs[REGISTER_A2];
+                        switch (transfer_capability(*cap, trap->pid, pid)) {
+                            case 0:
+                                trap->xs[REGISTER_A0] = 0;
+                                break;
+                            case 1:
+                                kill_process(trap->pid);
+                                timer_switch(trap);
+                                return trap;
+                            case 2:
+                                trap->xs[REGISTER_A0] = 1;
+                                break;
+                            default:
+                                console_puts("[interrupt_handler] warning: unknown return value from transfer_capability\n");
+                                break;
+                        }
                         break;
+                    }
 
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);

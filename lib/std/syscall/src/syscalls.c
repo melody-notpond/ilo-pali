@@ -134,3 +134,9 @@ virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permi
         .physical = dual.second,
     };
 }
+
+// transfer_capability(capability_t* capability, pid_t pid) -> void
+// Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid.
+int transfer_capability(capability_t* capability, pid_t pid) {
+    return syscall(16, (uint64_t) capability, (uint64_t) pid, 0, 0, 0, 0).first;
+}

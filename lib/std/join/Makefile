@@ -4,6 +4,7 @@ AR	   = $(TARGET)-ar
 CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -nostdlib -g -Wall -Wextra -I../../../include/
 ifeq ($(CC),clang)
 	CFLAGS += -target $(TARGET) -mno-relax -Wno-unused-command-line-argument
+	AR = llvm-ar
 endif
 
 CODE = src/

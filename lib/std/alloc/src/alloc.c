@@ -240,7 +240,7 @@ void free_buckets_dealloc(void* data, void* p) {
 
 void* free_buckets_alloc_resize(void* data, uint64_t origin, void* p, size_t new_size) {
     if (p == NULL)
-        return NULL;
+        return free_buckets_alloc(data, origin, new_size);
 
     struct s_free_bucket* bucket = p;
     bucket--;

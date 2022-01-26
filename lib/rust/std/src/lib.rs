@@ -1,4 +1,4 @@
-#![feature(lang_items, prelude_import, panic_info_message, alloc_error_handler)]
+#![feature(lang_items, prelude_import, panic_info_message, alloc_error_handler, fn_traits)]
 #![no_std]
 
 extern crate alloc;
@@ -191,6 +191,12 @@ pub mod syscalls;
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct Capability(u128);
+
+impl From<u128> for Capability {
+    fn from(v: u128) -> Self {
+        Capability(v)
+    }
+}
 
 static mut ARGS: *const u8 = ptr::null();
 static mut ARG_SIZE: usize = 0;

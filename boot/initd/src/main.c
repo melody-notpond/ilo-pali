@@ -1,7 +1,10 @@
+#include <stdatomic.h>
 #include <stddef.h>
 
 #include "fdt.h"
 #include "iter/string.h"
+#include "iter/vec.h"
+#include "sync.h"
 #include "syscalls.h"
 #include "join.h"
 #include "fat16.h"
@@ -9,14 +12,21 @@
 
 struct thread_args {
     capability_t cap;
-    alloc_t alloc;
+    pid_t pid;
     fat16_fs_t* initrd;
 };
 
+struct {
+    capability_t cap;
+    pid_t pid;
+} filesystem_handler = { 0 };
+mutex_t* block_handlers;
+
 void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     capability_t capability = ((struct thread_args*) args)->cap;
-    alloc_t allocator = ((struct thread_args*) args)->alloc;
+    pid_t p = ((struct thread_args*) args)->pid;
     fat16_fs_t* initrd = ((struct thread_args*) args)->initrd;
+    dealloc_page(args, 1);
 
     pid_t pid;
     int type;
@@ -31,22 +41,86 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
             size_t size;
             void* elf = read_file_full(initrd, buffer, &size);
             if (elf == NULL) {
-                dealloc_page((void*) data, 1);
+                dealloc_page((void*) data, (size + PAGE_SIZE - 1) / PAGE_SIZE);
                 continue;
             }
 
             capability_t cap;
-            spawn_process(elf, size, NULL, 0, &cap);
+            pid_t pid = spawn_process(elf, size, NULL, 0, &cap);
+            send(true, &capability, MSG_TYPE_INT, pid, 0);
+            transfer_capability(&cap, p);
             send(true, &capability, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
             dealloc_page((void*) data, 1);
+        } else if (type == MSG_TYPE_SIGNAL) {
+            // driver -> initd protocol:
+            // - SIGNAL 0 - register driver
+            //    - META 0 - register block driver
+            //    - META 1 - register filesystem driver
+            //
+            // initd -> driver protocol:
+            // - SIGNAL 0 - registration status
+            //    - META 0 - registration success
+            //    - META 1 - driver already registered
+            // - SIGNAL 1 - capability transfer
+            //    - META 0 - block driver capability
+            //      INTEGER
+            //         - capability low double word
+            //         - capability high double word
+            switch (data) {
+                // Register driver
+                case 0:
+                    switch (meta) {
+                        // Register block device driver
+                        case 0: {
+                            send(true, &capability, MSG_TYPE_SIGNAL, 0, 0);
+
+                            mutex_guard_t guard = mutex_lock(block_handlers);
+                            vec_t* vec = guard.data;
+                            vec_push(vec, &capability);
+
+                            if (filesystem_handler.cap != 0) {
+                                send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
+                                transfer_capability(&capability, filesystem_handler.pid);
+                                send(true, &filesystem_handler.cap, MSG_TYPE_INT, capability & 0xffffffffffffffff, capability >> 64);
+                            }
+
+                            mutex_unlock(&guard);
+                            break;
+                        }
+
+                        // Register file system driver if none is registered
+                        case 1: {
+                            if (filesystem_handler.cap == 0) {
+                                filesystem_handler.cap = capability;
+                                filesystem_handler.pid = pid;
+
+                                send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 0, 0);
+                                mutex_guard_t guard = mutex_lock(block_handlers);
+                                vec_t* vec = guard.data;
+                                size_t i = 0;
+                                for (capability_t* cap = vec_get(vec, i); cap != NULL; cap = vec_get(vec, ++i)) {
+                                    send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
+                                    transfer_capability(&capability, filesystem_handler.pid);
+                                    send(true, &filesystem_handler.cap, MSG_TYPE_INT, *cap & 0xffffffffffffffff, *cap >> 64);
+                                }
+                                mutex_unlock(&guard);
+                            } else send(true, &capability, MSG_TYPE_SIGNAL, 0, 1);
+                            break;
+                        }
+
+                        default:
+                            uart_printf("unknown driver registration number %x\n", meta);
+                    }
+
+                    break;
+                default:
+                    uart_printf("unknown signal %x\n", data);
+            }
         }
     }
 
-    dealloc(&allocator, args);
     kill(getpid());
 }
-
-int x;
 
 void _start(void* fdt) {
     asm volatile(
@@ -56,13 +130,13 @@ void _start(void* fdt) {
         ".option pop\n"
     );
 
-    x = 2;
-
     uart_printf("initd started\n");
 
     alloc_t page_alloc = (alloc_t) PAGE_ALLOC;
     free_buckets_alloc_t free_buckets = free_buckets_allocator_options(&page_alloc, PAGE_ALLOC_PAGE_SIZE);
     alloc_t allocator = create_free_buckets_allocator(&free_buckets);
+    vec_t block_handlers_vec = vec(&allocator, capability_t);
+    block_handlers = create_mutex(&allocator, &block_handlers_vec);
 
     fdt_t tree = verify_fdt(fdt);
 
@@ -101,12 +175,16 @@ void _start(void* fdt) {
                 if (module_elf == NULL)
                     break;
             }
-            spawn_process(module_elf, module_size, NULL, 0, &cap);
-            struct thread_args* args = alloc(&allocator, sizeof(struct thread_args));
+            pid_t pid = spawn_process(module_elf, module_size, NULL, 0, &cap);
+            struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
             args->cap = cap;
-            args->alloc = allocator;
+            args->pid = pid;
             args->initrd = &initrd;
-            spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
+            while (1) {
+                pid_t pid = spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
+                if (!transfer_capability(&cap, pid))
+                    break;
+            }
         } else {
             void* node = NULL;
             while ((node = fdt_find(&tree, device, node))) {
@@ -122,19 +200,22 @@ void _start(void* fdt) {
                 }
 
                 uart_printf("spawning\n");
-                uint64_t* p = alloc(&allocator, 3 * sizeof(uint64_t));
                 struct fdt_property reg = fdt_get_property(&tree, node, "reg");
                 struct fdt_property interrupts = fdt_get_property(&tree, node, "interrupts");
+                uint64_t p[3];
                 p[0] = be_to_le(64, reg.data);
                 p[1] = be_to_le(64, reg.data + 8); // TODO: use #address-cells and #size-cells
                 p[2] = be_to_le(interrupts.len * 8, interrupts.data);
-                spawn_process(module_elf, module_size, p, 3 * sizeof(uint64_t), &cap);
-                dealloc(&allocator, p);
-                struct thread_args* args = alloc(&allocator, sizeof(struct thread_args));
+                pid_t pid = spawn_process(module_elf, module_size, p, sizeof(p), &cap);
+                struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
                 args->cap = cap;
-                args->alloc = allocator;
+                args->pid = pid;
                 args->initrd = &initrd;
-                spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
+                while (1) {
+                    pid_t pid = spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
+                    if (!transfer_capability(&cap, pid))
+                        break;
+                }
             }
 
             dealloc_page(module_elf, (module_size + PAGE_SIZE - 1) / PAGE_SIZE);

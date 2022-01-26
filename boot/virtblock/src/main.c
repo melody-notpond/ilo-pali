@@ -92,7 +92,6 @@ void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t
         uint8_t* status = phalloc_get_virtual(alloc->data, (uint64_t) desc->addr);
         if (*status != 0)
             uart_printf("[block driver] block operation failed\n");
-        else uart_printf("[block driver] block operation successful\n");
         dealloc(alloc, status);
         mutex_unlock(&allocator_guard);
         mutex_unlock(&requestq_guard);
@@ -118,6 +117,10 @@ void handle_process(void* args, size_t _arg_size, uint64_t cap_high, uint64_t ca
     while (!recv(true, &process, &pid, &type, &data, &meta)) {
     }
 }
+
+typedef enum {
+    NONE,
+} block_driver_state_t;
 
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
     capability_t superdriver = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
@@ -148,22 +151,27 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             break;
         case VIRTIO_MMIO_INIT_STATE_INVALID_MMIO:
             uart_printf("[block driver] invalid mmio passed in\n");
+            send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_DEVICE_ID_0:
             uart_printf("[block driver] no device detected\n");
+            send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_DEVICE:
             uart_printf("[block driver] device is not a block device\n");
+            send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNSUPPORTED_FEATURES:
             uart_printf("[block driver] unsupported features passed in\n");
+            send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
             kill(getpid());
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_ERROR:
             uart_printf("[block driver] an unknown error occurred\n");
+            send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
             kill(getpid());
             break;
     }
@@ -189,12 +197,18 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         .requestq_mutex = requestq_mutex,
     };
 
-    while(!recv(true, &superdriver, &pid, &type, &data, &meta)) {
-        if (type == MSG_TYPE_SIGNAL && data == 0) {
-            capability_t cap;
-            spawn_thread(handle_process, &args, sizeof(struct handle_process_args), &cap);
-            send(true, &superdriver, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
-        }
+    // Driver is live, send registration request to initd and kill superdriver
+    send(true, &initd, MSG_TYPE_SIGNAL, 0, 0);
+    send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
+
+    pid_t fsd = 0;
+    block_driver_state_t state = NONE;
+
+    while(!recv(true, &initd, &pid, &type, &data, &meta)) {
+        if (fsd == 0)
+            fsd = pid;
+        else if (fsd != pid)
+            continue;
     }
 
     kill(getpid());

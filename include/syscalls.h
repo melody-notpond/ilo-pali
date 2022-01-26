@@ -122,4 +122,8 @@ void subscribe_to_interrupt(uint32_t id, capability_t* capability);
 // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed. If addr is not NULL, returns addresses that contain that address.
 virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability);
 
+// transfer_capability(capability_t* capability, pid_t pid) -> void
+// Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid.
+int transfer_capability(capability_t* capability, pid_t pid);
+
 #endif /* SYSCALL_H */

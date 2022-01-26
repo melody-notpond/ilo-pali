@@ -111,7 +111,7 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     processes[pid].last_virtual_page += PAGE_SIZE;
 
     if (args != NULL && arg_size != 0) {
-        for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1); i += PAGE_SIZE) {
+        for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE; i += PAGE_SIZE) {
             void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
             memcpy(kernel_space_phys2virtual(physical), args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
         }
@@ -338,6 +338,19 @@ void kill_process(pid_t pid) {
     processes[pid].state = PROCESS_STATE_DEAD;
 }
 
+// transfer_capability(capability_t, pid_t, pid_t) -> int
+// Transfers the given capability to a new process. Returns 0 if successful, 1 if the capability is invalid, and 2 if the new owner doesn't exist.
+int transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner) {
+    process_channel_t* channel = hashmap_get(capabilities, &capability);
+
+    if (channel == NULL || channel->message_queue == NULL || channel->receiver != old_owner)
+        return 1;
+    if (get_process(new_owner) == NULL)
+        return 2;
+    channel->receiver = new_owner;
+    return 0;
+}
+
 // enqueue_message_to_channel(capability_t, process_message_t) -> int
 // Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
 int enqueue_message_to_channel(capability_t capability, process_message_t message) {
@@ -390,13 +403,11 @@ int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL)
+    if (channel == NULL || channel->receiver != pid)
         return 1;
 
     if (channel->message_queue == NULL)
         return 3;
-
-    channel->receiver = pid;
 
     if (channel->len == 0)
         return 2;

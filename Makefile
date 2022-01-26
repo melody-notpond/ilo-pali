@@ -78,11 +78,8 @@ idisc: boot
 
 rdisc: root
 	dd if=/dev/zero of=build/root.iso bs=4M count=256
-	mkfs.ext2 -L root build/root.iso
-	mkdir -p mnt_root
-	sudo mount build/root.iso mnt_root/
-	sudo cp build/root/* mnt_root/
-	sudo umount mnt_root
+	echo -e 'I\ncreate-gpt.fdisk\nw\n' | fdisk build/root.iso
+	./makefile-helper.sh
 
 gdb:
 	$(GDB) -q -x kernel.gdb

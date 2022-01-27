@@ -126,4 +126,12 @@ virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permi
 // Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid.
 int transfer_capability(capability_t* capability, pid_t pid);
 
+// clone_capability(capability_t*, capability_t*) -> void
+// Clones a capability. If the capability is invalid, kills the process.
+void clone_capability(capability_t* original, capability_t* new);
+
+// create_capability(capability_t* cap1, capability_t* cap2) -> void
+// Creates a pair of capabilities.
+void create_capability(capability_t* cap1, capability_t* cap2);
+
 #endif /* SYSCALL_H */

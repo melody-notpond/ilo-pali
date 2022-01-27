@@ -140,3 +140,15 @@ virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permi
 int transfer_capability(capability_t* capability, pid_t pid) {
     return syscall(16, (uint64_t) capability, (uint64_t) pid, 0, 0, 0, 0).first;
 }
+
+// clone_capability(capability_t*, capability_t*) -> void
+// Clones a capability. If the capability is invalid, kills the process.
+void clone_capability(capability_t* original, capability_t* new) {
+    syscall(17, (uint64_t) original, (uint64_t) new, 0, 0, 0, 0);
+}
+
+// create_capability(capability_t* cap1, capability_t* cap2) -> void
+// Creates a pair of capabilities.
+void create_capability(capability_t* cap1, capability_t* cap2) {
+    syscall(18, (uint64_t) cap1, (uint64_t) cap2, 0, 0, 0, 0);
+}

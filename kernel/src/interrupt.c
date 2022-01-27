@@ -545,6 +545,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 break;
                             case 1:
                                 if (trap->pid != 0) {
+                                    console_printf("killing %lx\n", trap->pid);
                                     kill_process(trap->pid);
                                     timer_switch(trap);
                                 } else {
@@ -718,6 +719,33 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 console_puts("[interrupt_handler] warning: unknown return value from transfer_capability\n");
                                 break;
                         }
+                        break;
+                    }
+
+                    // clone_capability(capability_t*, capability_t*) -> void
+                    // Clones a capability. If the capability is invalid, kills the process.
+                    case 17: {
+                        capability_t* cap = (void*) trap->xs[REGISTER_A1];
+                        capability_t* new = (void*) trap->xs[REGISTER_A2];
+                        switch (clone_capability(trap->pid, *cap, new)) {
+                            case 0:
+                                break;
+                            default:
+                                kill_process(trap->pid);
+                                timer_switch(trap);
+                                break;
+                        }
+
+                        break;
+                    }
+
+                    // create_capability(capability_t* cap1, capability_t* cap2) -> void
+                    // Creates a pair of capabilities.
+                    case 18: {
+                        capability_t* cap1 = (void*) trap->xs[REGISTER_A1];
+                        capability_t* cap2 = (void*) trap->xs[REGISTER_A2];
+                        if (cap1 != NULL && cap2 != NULL)
+                            create_capability(cap1, trap->pid, cap2, trap->pid);
                         break;
                     }
 

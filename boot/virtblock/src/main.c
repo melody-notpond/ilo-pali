@@ -22,8 +22,7 @@ bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
     return false;
 }
 
-void perform_block_operation(volatile virtio_mmio_t* mmio, mutex_guard_t* allocator_guard, mutex_t* requestq_mutex, bool read, uint64_t sector_index, void* sector, size_t sector_count) {
-    alloc_t* allocator = allocator_guard->data;
+void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, virtio_queue_t* requestq, bool read, uint64_t sector_index, void* sector) {
     if (sector == NULL)
         sector = alloc(allocator, 512);
     uint8_t* status = alloc(allocator, 1);
@@ -35,8 +34,6 @@ void perform_block_operation(volatile virtio_mmio_t* mmio, mutex_guard_t* alloca
     };
 
     uint16_t d1, d2, d3;
-    mutex_guard_t requestq_guard = mutex_lock(requestq_mutex);
-    virtio_queue_t* requestq = requestq_guard.data;
     *virtqueue_push_descriptor(requestq, &d3) = (virtio_descriptor_t) {
         .addr = (void*) phalloc_get_physical(status),
         .flags = VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY,
@@ -47,7 +44,7 @@ void perform_block_operation(volatile virtio_mmio_t* mmio, mutex_guard_t* alloca
     *virtqueue_push_descriptor(requestq, &d2) = (virtio_descriptor_t) {
         .addr = (void*) phalloc_get_physical(sector),
         .flags = (read ? VIRTIO_DESCRIPTOR_FLAG_WRITE_ONLY : 0) | VIRTIO_DESCRIPTOR_FLAG_NEXT,
-        .length = 512 * sector_count,
+        .length = 512,
         .next = d3,
     };
 
@@ -59,8 +56,6 @@ void perform_block_operation(volatile virtio_mmio_t* mmio, mutex_guard_t* alloca
     };
 
     virtqueue_push_available(requestq, d1);
-    mutex_unlock(&requestq_guard);
-    mutex_unlock(allocator_guard);
     mmio->queue_notify = 0;
 }
 
@@ -70,6 +65,7 @@ struct handle_interrupts_args {
     mutex_t* requestq_mutex;
 };
 
+/*
 void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t cap_low) {
     capability_t interrupts = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
     struct handle_interrupts_args* args_struct = args;
@@ -99,24 +95,12 @@ void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t
 
     kill(getpid());
 }
+*/
 
 struct handle_process_args {
     mutex_t* alloc_mutex;
     mutex_t* requestq_mutex;
 };
-
-void handle_process(void* args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
-    struct handle_process_args* args_struct = args;
-
-    capability_t process = (capability_t) cap_high << 64 | (capability_t) cap_low;
-    pid_t pid;
-    int type;
-    uint64_t data;
-    uint64_t meta;
-
-    while (!recv(true, &process, &pid, &type, &data, &meta)) {
-    }
-}
 
 typedef enum {
     NONE,
@@ -176,39 +160,69 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             break;
     }
 
-    struct {
-        alloc_t alloc;
-        phalloc_t phalloc;
-    } A;
-    A.phalloc = physical_allocator_options(&initd, 0);
-    A.alloc = create_physical_allocator(&A.phalloc);
-    mutex_t* alloc_mutex = create_mutex(&A.alloc, &A);
-    mutex_t* requestq_mutex = create_mutex(&A.alloc, requestq);
-    struct handle_interrupts_args args_struct = {
-        .interrupt_id = interrupt_id,
-        .alloc_mutex = alloc_mutex,
-        .requestq_mutex = requestq_mutex,
-    };
-    capability_t capability;
-    spawn_thread(handle_interrupts, &args_struct, sizeof(struct handle_interrupts_args), &capability);
-
-    struct handle_process_args args = {
-        .alloc_mutex = alloc_mutex,
-        .requestq_mutex = requestq_mutex,
-    };
-
     // Driver is live, send registration request to initd and kill superdriver
     send(true, &initd, MSG_TYPE_SIGNAL, 0, 0);
     send(true, &superdriver, MSG_TYPE_SIGNAL, 0, 0);
 
-    pid_t fsd = 0;
+    // Get fsd capability
+    recv(true, &initd, &pid, &type, &data, &meta);
+    recv(true, &initd, &pid, &type, &data, &meta);
+    capability_t fsd = (capability_t) meta << 64 | (capability_t) data;
+
+    phalloc_t phalloc = physical_allocator_options(&initd, 0);
+    alloc_t allocator = create_physical_allocator(&phalloc);
+
+    pid_t fsdp = 0;
     block_driver_state_t state = NONE;
 
-    while(!recv(true, &initd, &pid, &type, &data, &meta)) {
-        if (fsd == 0)
-            fsd = pid;
-        else if (fsd != pid)
-            continue;
+    subscribe_to_interrupt(interrupt_id, &fsd);
+    while(!recv(true, &fsd, &pid, &type, &data, &meta)) {
+        if (type == MSG_TYPE_INTERRUPT) {
+            volatile virtio_descriptor_t* desc = virtqueue_pop_used(requestq);
+            struct virtio_blk_req* header = phalloc_get_virtual(&phalloc, (uint64_t) desc->addr);
+            bool read = header->type == VIRTIO_BLK_T_IN;
+            dealloc(&allocator, header);
+            desc = virtqueue_get_descriptor(requestq, desc->next);
+            void* data = phalloc_get_virtual(&phalloc, (uint64_t) desc->addr);
+
+            if (!read)
+                dealloc(&allocator, data);
+            desc = virtqueue_get_descriptor(requestq, desc->next);
+            uint8_t* status = phalloc_get_virtual(&phalloc, (uint64_t) desc->addr);
+            if (*status != 0) {
+                uart_printf("[block driver] block operation failed\n");
+                send(true, &fsd, MSG_TYPE_SIGNAL, 0, 2);
+            } else if (read) {
+                send(true, &fsd, MSG_TYPE_SIGNAL, 0, 0);
+                send(true, &fsd, MSG_TYPE_DATA, (uint64_t) data, 512);
+                dealloc(&allocator, data);
+            } else {
+                send(true, &fsd, MSG_TYPE_SIGNAL, 0, 1);
+            }
+            dealloc(&allocator, status);
+            dealloc(&allocator, data);
+        } else {
+            if (fsdp == 0)
+                fsdp = pid;
+            else if (fsdp != pid)
+                continue;
+
+            if (state == NONE) {
+                if (type == MSG_TYPE_SIGNAL) {
+                    switch (data) {
+                        // READ
+                        case 0:
+                            perform_block_operation(mmio, &allocator, requestq, true, meta, NULL);
+                            break;
+
+                        default:
+                            uart_printf("[block driver] unknown signal type %x\n", data);
+                    }
+                } else if (type == MSG_TYPE_POINTER || type == MSG_TYPE_DATA) {
+                    dealloc_page((void*) data, (meta + PAGE_SIZE - 1) / PAGE_SIZE);
+                }
+            }
+        }
     }
 
     kill(getpid());

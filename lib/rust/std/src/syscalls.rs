@@ -270,12 +270,28 @@ pub fn send(
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Message {
     pub pid: Pid,
     pub type_: MessageType,
     pub data: u64,
     pub metadata: u64,
+}
+
+impl Drop for Message {
+    fn drop(&mut self) {
+        match self.type_ {
+            MessageType::Signal | MessageType::Integer | MessageType::Interrupt => (),
+
+            MessageType::Data => {
+                let _ = dealloc_page(self.data as *mut u8, 1);
+            }
+
+            MessageType::Pointer => {
+                let _ = dealloc_page(self.data as *mut u8, (self.metadata as usize + PAGE_SIZE - 1) / PAGE_SIZE);
+            }
+        }
+    }
 }
 
 pub fn recv(block: bool, channel: Capability) -> Option<Message> {
@@ -627,3 +643,21 @@ pub fn transfer_capability(cap: Capability, pid: Pid) -> Result<(), TransferCapa
         _ => unreachable!(),
     }
 }
+
+pub fn clone_capability(original: Capability, new: &mut Capability) {
+    unsafe {
+        syscall(17, &original as *const Capability as u64, new as *mut Capability as u64, 0, 0, 0, 0, 0);
+    }
+}
+
+pub fn create_capability() -> (Capability, Capability) {
+    let mut cap1 = Capability(0);
+    let mut cap2 = Capability(0);
+
+    unsafe {
+        syscall(18, &mut cap1 as *mut Capability as u64, &mut cap2 as *mut Capability as u64, 0, 0, 0, 0, 0);
+    }
+
+    (cap1, cap2)
+}
+

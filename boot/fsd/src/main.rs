@@ -18,13 +18,19 @@ fn main() {
         while let Some(message) = syscalls::recv(true, cap) {
             if states.contains(&message.pid) {
                 if let MessageType::Integer = message.type_ {
-                    let block = Capability::from((message.data as u128) << 64 | message.metadata as u128);
-                    syscalls::spawn_thread(move |_| {
-                        let _ = syscalls::send(true, block, MessageType::Integer, 0, 0);
-                        while let Some(message) = syscalls::recv(true, block) {
-                            
+                    let block = Capability::from((message.metadata as u128) << 64 | message.data as u128);
+                    loop {
+                        if let Some(pid) = syscalls::spawn_thread(move |_| {
+                            let _ = syscalls::send(true, block, MessageType::Signal, 0, 0);
+                            while let Some(message) = syscalls::recv(true, block) {
+                                let _ = writeln!(UartWrite, "{:?}", message);
+                            }
+                        }, None) {
+                            if syscalls::transfer_capability(block, pid).is_ok() {
+                                break;
+                            }
                         }
-                    }, None);
+                    }
 
                     states.remove(&message.pid);
                 } else {

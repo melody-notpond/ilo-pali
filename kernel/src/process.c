@@ -345,9 +345,43 @@ int transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owne
 
     if (channel == NULL || channel->message_queue == NULL || channel->receiver != old_owner)
         return 1;
-    if (get_process(new_owner) == NULL)
+    process_t* process = get_process(new_owner);
+    if (process == NULL)
         return 2;
+    process_t* current = get_process(old_owner);
+    if ((process->pid == 0 || new_owner == 0 || process->thread_source == 0) && current->thread_source != 0 && current->pid != 0)
+        return 1;
     channel->receiver = new_owner;
+    return 0;
+}
+
+// clone_capability(pid_t, capability_t, capability_t*) -> int
+// Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
+int clone_capability(pid_t pid, capability_t original, capability_t* new) {
+    process_channel_t* channel = hashmap_get(capabilities, &original);
+    if (channel == NULL)
+        return 1;
+
+    process_t* receiver = get_process(channel->receiver);
+    process_t* process = get_process(pid);
+    if (receiver->pid != process->pid && receiver->pid != process->thread_source && receiver->thread_source != process->pid && receiver->thread_source != process->thread_source)
+        return 1;
+
+    *new = 0;
+    do {
+        // TODO: cryptographically secure random function
+        *new += 1;
+    } while (hashmap_get(capabilities, new) != NULL);
+
+    hashmap_insert(capabilities, new, &(process_channel_t) {
+        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
+        .start = 0,
+        .end = 0,
+        .len = 0,
+        .sender = original,
+        .receiver = pid,
+    });
+
     return 0;
 }
 
@@ -423,21 +457,17 @@ int dequeue_message_from_channel(pid_t pid, capability_t capability, process_mes
 // Returns true if the capability connects to initd or one of its threads.
 bool capability_connects_to_initd(capability_t capability) {
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL)
+    process_channel_t* sender = hashmap_get(capabilities, &channel->sender);
+    if (channel == NULL || sender == NULL || channel->message_queue == NULL || sender->message_queue == NULL)
         return false;
-    if (channel->receiver == 0)
+    if (channel->receiver == 0 || sender->receiver == 0)
         return true;
     process_t* receiver = get_process(channel->receiver);
     if (receiver == NULL)
         return false;
     if (receiver->thread_source == 0)
         return true;
-    channel = hashmap_get(capabilities, &channel->sender);
-    if (channel == NULL)
-        return false;
-    if (channel->receiver == 0)
-        return true;
-    receiver = get_process(channel->receiver);
+    receiver = get_process(sender->receiver);
     if (receiver == NULL)
         return false;
     return receiver->thread_source == 0;

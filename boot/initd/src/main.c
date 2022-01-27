@@ -16,15 +16,16 @@ struct thread_args {
     fat16_fs_t* initrd;
 };
 
-struct {
+struct driver {
     capability_t cap;
     pid_t pid;
-} filesystem_handler = { 0 };
+};
+
+struct driver filesystem_handler = { 0 };
 mutex_t* block_handlers;
 
 void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     capability_t capability = ((struct thread_args*) args)->cap;
-    pid_t p = ((struct thread_args*) args)->pid;
     fat16_fs_t* initrd = ((struct thread_args*) args)->initrd;
     dealloc_page(args, 1);
 
@@ -48,7 +49,7 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
             capability_t cap;
             pid_t pid = spawn_process(elf, size, NULL, 0, &cap);
             send(true, &capability, MSG_TYPE_INT, pid, 0);
-            transfer_capability(&cap, p);
+            transfer_capability(&cap, pid);
             send(true, &capability, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
             dealloc_page((void*) data, 1);
         } else if (type == MSG_TYPE_SIGNAL) {
@@ -72,16 +73,24 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
                     switch (meta) {
                         // Register block device driver
                         case 0: {
-                            send(true, &capability, MSG_TYPE_SIGNAL, 0, 0);
-
                             mutex_guard_t guard = mutex_lock(block_handlers);
                             vec_t* vec = guard.data;
-                            vec_push(vec, &capability);
+                            vec_push(vec, &(struct driver) {
+                                .cap = capability,
+                                .pid = pid,
+                            });
 
                             if (filesystem_handler.cap != 0) {
+                                capability_t cap1;
+                                capability_t cap2;
+                                create_capability(&cap1, &cap2);
                                 send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
-                                transfer_capability(&capability, filesystem_handler.pid);
-                                send(true, &filesystem_handler.cap, MSG_TYPE_INT, capability & 0xffffffffffffffff, capability >> 64);
+                                transfer_capability(&cap1, filesystem_handler.pid);
+                                send(true, &filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
+
+                                send(true, &capability, MSG_TYPE_SIGNAL, 0, 0);
+                                transfer_capability(&cap2, pid);
+                                send(true, &capability, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
                             }
 
                             mutex_unlock(&guard);
@@ -98,10 +107,17 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
                                 mutex_guard_t guard = mutex_lock(block_handlers);
                                 vec_t* vec = guard.data;
                                 size_t i = 0;
-                                for (capability_t* cap = vec_get(vec, i); cap != NULL; cap = vec_get(vec, ++i)) {
+                                for (struct driver* driver = vec_get(vec, i); driver != NULL; driver = vec_get(vec, ++i)) {
+                                    capability_t cap1;
+                                    capability_t cap2;
+                                    create_capability(&cap1, &cap2);
                                     send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
-                                    transfer_capability(&capability, filesystem_handler.pid);
-                                    send(true, &filesystem_handler.cap, MSG_TYPE_INT, *cap & 0xffffffffffffffff, *cap >> 64);
+                                    transfer_capability(&cap1, filesystem_handler.pid);
+                                    send(true, &filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
+
+                                    send(true, &driver->cap, MSG_TYPE_SIGNAL, 0, 0);
+                                    transfer_capability(&cap2, driver->pid);
+                                    send(true, &driver->cap, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
                                 }
                                 mutex_unlock(&guard);
                             } else send(true, &capability, MSG_TYPE_SIGNAL, 0, 1);
@@ -135,7 +151,7 @@ void _start(void* fdt) {
     alloc_t page_alloc = (alloc_t) PAGE_ALLOC;
     free_buckets_alloc_t free_buckets = free_buckets_allocator_options(&page_alloc, PAGE_ALLOC_PAGE_SIZE);
     alloc_t allocator = create_free_buckets_allocator(&free_buckets);
-    vec_t block_handlers_vec = vec(&allocator, capability_t);
+    vec_t block_handlers_vec = vec(&allocator, struct driver);
     block_handlers = create_mutex(&allocator, &block_handlers_vec);
 
     fdt_t tree = verify_fdt(fdt);

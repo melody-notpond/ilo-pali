@@ -545,7 +545,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 break;
                             case 1:
                                 if (trap->pid != 0) {
-                                    console_printf("killing %lx\n", trap->pid);
                                     kill_process(trap->pid);
                                     timer_switch(trap);
                                 } else {

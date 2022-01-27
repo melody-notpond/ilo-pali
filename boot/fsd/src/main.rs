@@ -7,6 +7,9 @@ use std::syscalls::UartWrite;
 use std::fmt::Write;
 use std::env::get_capability;
 use std::syscalls::{self, MessageType};
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use alloc::vec;
 use hashbrown::HashSet;
 
 fn main() {
@@ -22,6 +25,10 @@ fn main() {
                     loop {
                         if let Some(pid) = syscalls::spawn_thread(move |_| {
                             let _ = syscalls::send(true, block, MessageType::Signal, 0, 0);
+                            let _ = syscalls::send(true, block, MessageType::Signal, 1, 0);
+                            let v = vec![0x69u8; 512];
+                            let p = v.as_ptr();
+                            let _ = syscalls::send(true, block, MessageType::Data, p as u64, 512);
                             while let Some(message) = syscalls::recv(true, block) {
                                 let _ = writeln!(UartWrite, "{:?}", message);
                             }

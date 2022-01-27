@@ -25,6 +25,12 @@ bool setup_callback(void* data, volatile virtio_mmio_t* mmio) {
 void perform_block_operation(volatile virtio_mmio_t* mmio, alloc_t* allocator, virtio_queue_t* requestq, bool read, uint64_t sector_index, void* sector) {
     if (sector == NULL)
         sector = alloc(allocator, 512);
+    else {
+        void* sector_new = alloc(allocator, 512);
+        memcpy(sector_new, sector, 512);
+        sector = sector_new;
+    }
+
     uint8_t* status = alloc(allocator, 1);
     *status = 69;
     struct virtio_blk_req* header = alloc(allocator, sizeof(struct virtio_blk_req));
@@ -65,46 +71,10 @@ struct handle_interrupts_args {
     mutex_t* requestq_mutex;
 };
 
-/*
-void handle_interrupts(void* args, size_t args_size, uint64_t cap_high, uint64_t cap_low) {
-    capability_t interrupts = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
-    struct handle_interrupts_args* args_struct = args;
-
-    subscribe_to_interrupt(args_struct->interrupt_id, &interrupts);
-
-    int type;
-    uint64_t data;
-    while (!recv(true, &interrupts, NULL, &type, &data, NULL)) {
-        if (type != MSG_TYPE_INTERRUPT)
-            continue;
-        mutex_guard_t requestq_guard = mutex_lock(args_struct->requestq_mutex);
-        virtio_queue_t* requestq = requestq_guard.data;
-        mutex_guard_t allocator_guard = mutex_lock(args_struct->alloc_mutex);
-        alloc_t* alloc = allocator_guard.data;
-        volatile virtio_descriptor_t* desc = virtqueue_pop_used(requestq);
-        dealloc(alloc, phalloc_get_virtual(alloc->data, (uint64_t) desc->addr));
-        desc = virtqueue_get_descriptor(requestq, desc->next);
-        desc = virtqueue_get_descriptor(requestq, desc->next);
-        uint8_t* status = phalloc_get_virtual(alloc->data, (uint64_t) desc->addr);
-        if (*status != 0)
-            uart_printf("[block driver] block operation failed\n");
-        dealloc(alloc, status);
-        mutex_unlock(&allocator_guard);
-        mutex_unlock(&requestq_guard);
-    }
-
-    kill(getpid());
-}
-*/
-
 struct handle_process_args {
     mutex_t* alloc_mutex;
     mutex_t* requestq_mutex;
 };
-
-typedef enum {
-    NONE,
-} block_driver_state_t;
 
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
     capability_t superdriver = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
@@ -173,7 +143,8 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     alloc_t allocator = create_physical_allocator(&phalloc);
 
     pid_t fsdp = 0;
-    block_driver_state_t state = NONE;
+    bool state_write = false;
+    uint64_t sector_index = 0;
 
     subscribe_to_interrupt(interrupt_id, &fsd);
     while(!recv(true, &fsd, &pid, &type, &data, &meta)) {
@@ -207,12 +178,18 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             else if (fsdp != pid)
                 continue;
 
-            if (state == NONE) {
+            if (!state_write) {
                 if (type == MSG_TYPE_SIGNAL) {
                     switch (data) {
                         // READ
                         case 0:
                             perform_block_operation(mmio, &allocator, requestq, true, meta, NULL);
+                            break;
+
+                        // WRITE DATA
+                        case 1:
+                            sector_index = meta;
+                            state_write = true;
                             break;
 
                         default:
@@ -221,6 +198,13 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
                 } else if (type == MSG_TYPE_POINTER || type == MSG_TYPE_DATA) {
                     dealloc_page((void*) data, (meta + PAGE_SIZE - 1) / PAGE_SIZE);
                 }
+            } else {
+                if (type == MSG_TYPE_DATA && meta == 512) {
+                    perform_block_operation(mmio, &allocator, requestq, false, sector_index, (void*) data);
+                    dealloc_page((void*) data, 1);
+                } else if (type == MSG_TYPE_DATA || type == MSG_TYPE_POINTER)
+                    dealloc_page((void*) data, (meta + PAGE_SIZE - 1) / PAGE_SIZE);
+                state_write = false;
             }
         }
     }

@@ -278,6 +278,20 @@ pub struct Message {
     pub metadata: u64,
 }
 
+impl Message {
+    pub fn into_raw<T>(mut v: Self) -> (*mut T, usize) {
+        match v.type_ {
+            MessageType::Signal | MessageType::Integer | MessageType::Interrupt => panic!("invalid type"),
+            MessageType::Pointer | MessageType::Data => {
+                let ptr = v.data as *mut T;
+                let size = v.metadata as usize;
+                v.type_ = MessageType::Integer;
+                (ptr, size)
+            }
+        }
+    }
+}
+
 impl Drop for Message {
     fn drop(&mut self) {
         match self.type_ {

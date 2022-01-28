@@ -41,6 +41,48 @@ void perform_gpu_action(volatile virtio_mmio_t* mmio, virtio_queue_t* controlq, 
     mmio->queue_notify = 0;
 }
 
+void send_and_flush_framebuffer(volatile virtio_mmio_t* mmio, alloc_t* allocator, phalloc_t* phalloc, virtio_queue_t* controlq, capability_t* cap, struct virtio_gpu_rect r, uint32_t resource_id) {
+    // Transfer resource to host
+    struct virtio_gpu_transfer_to_host_2d to_host = {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .r = r,
+        .offset = 0,
+        .resource_id = resource_id,
+    };
+
+    int type;
+    uint64_t data;
+
+    perform_gpu_action(mmio, controlq, allocator, &to_host, sizeof(to_host), sizeof(struct virtio_gpu_ctrl_hdr));
+    recv(true, cap, NULL, &type, &data, NULL);
+    volatile virtio_descriptor_t* d = virtqueue_pop_used(controlq);
+    dealloc(allocator, phalloc_get_virtual(phalloc, (uint64_t) d->addr));
+    d = virtqueue_get_descriptor(controlq, d->next);
+    dealloc(allocator, phalloc_get_virtual(phalloc, (uint64_t) d->addr));
+
+    struct virtio_gpu_resource_flush flush = {
+        .hdr = {
+            .type = VIRTIO_GPU_CMD_RESOURCE_FLUSH,
+            .flags = 0,
+            .fence_id = 0,
+            .ctx_id = 0,
+        },
+        .r = r,
+        .resource_id = resource_id,
+    };
+    perform_gpu_action(mmio, controlq, allocator, &flush, sizeof(flush), sizeof(struct virtio_gpu_ctrl_hdr));
+    recv(true, cap, NULL, &type, &data, NULL);
+    d = virtqueue_pop_used(controlq);
+    dealloc(allocator, phalloc_get_virtual(phalloc, (uint64_t) d->addr));
+    d = virtqueue_get_descriptor(controlq, d->next);
+    dealloc(allocator, phalloc_get_virtual(phalloc, (uint64_t) d->addr));
+}
+
 void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
     capability_t superdriver = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
 
@@ -113,7 +155,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         if (info->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
             uart_printf("[gpu driver] failed to get display info. quitting");
             kill(getpid());
-        } else uart_printf("[gpu driver] got display info\n");
+        } else uart_printf("[gpu driver] got display info; size is %ix%i\n", info->pmodes[0].r.width, info->pmodes[0].r.height);
     } else {
         uart_printf("oh no\n");
         kill(getpid());
@@ -211,7 +253,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
             uart_printf("[gpu driver] failed to set scanout. quitting");
             kill(getpid());
-        } else uart_printf("[gpu driver] set scanout\n");
+        } else uart_printf("[gpu driver] set scanout. screen is initialised!\n");
         dealloc(&allocator, header);
     } else {
         uart_printf("oh no\n");
@@ -222,41 +264,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         framebuffer[i] = 0xFFFF00FF;
     }
 
-    // Transfer resource to host
-    struct virtio_gpu_transfer_to_host_2d to_host = {
-        .hdr = {
-            .type = VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
-            .flags = 0,
-            .fence_id = 0,
-            .ctx_id = 0,
-        },
-        .r = info->pmodes[0].r,
-        .offset = 0,
-        .resource_id = 1,
-    };
-    perform_gpu_action(mmio, controlq, &allocator, &to_host, sizeof(to_host), sizeof(struct virtio_gpu_ctrl_hdr));
-    recv(true, &superdriver, NULL, &type, &data, NULL);
-    d = virtqueue_pop_used(controlq);
-    dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
-    d = virtqueue_get_descriptor(controlq, d->next);
-    dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
-
-    struct virtio_gpu_resource_flush flush = {
-        .hdr = {
-            .type = VIRTIO_GPU_CMD_RESOURCE_FLUSH,
-            .flags = 0,
-            .fence_id = 0,
-            .ctx_id = 0,
-        },
-        .r = info->pmodes[0].r,
-        .resource_id = 1,
-    };
-    perform_gpu_action(mmio, controlq, &allocator, &flush, sizeof(flush), sizeof(struct virtio_gpu_ctrl_hdr));
-    recv(true, &superdriver, NULL, &type, &data, NULL);
-    d = virtqueue_pop_used(controlq);
-    dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
-    d = virtqueue_get_descriptor(controlq, d->next);
-    dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
+    send_and_flush_framebuffer(mmio, &allocator, &phalloc, controlq, &superdriver, info->pmodes[0].r, 1);
 
     while (1);
 }

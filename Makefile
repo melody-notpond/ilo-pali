@@ -78,7 +78,6 @@ idisc: boot
 
 rdisc: root
 	dd if=/dev/zero of=build/root.iso bs=4M count=256
-	echo -e 'I\ncreate-gpt.fdisk\nw\n' | fdisk build/root.iso
 	./makefile-helper.sh
 
 gdb:

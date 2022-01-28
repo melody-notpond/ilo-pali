@@ -1,5 +1,6 @@
-#!/bin/sh
+#!/usr/bin/bash
 
+echo -ne 'I\ncreate-gpt.fdisk\nw\n' | fdisk build/root.iso
 sudo losetup -f build/root.iso
 LOOPBACK_DEVICE=`losetup -a | grep build/root.iso | awk -F: '{print $1;}'`
 sudo partprobe $LOOPBACK_DEVICE

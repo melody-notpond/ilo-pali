@@ -7,9 +7,6 @@ use std::syscalls::UartWrite;
 use std::fmt::Write;
 use std::env::get_capability;
 use std::syscalls::{self, MessageType};
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use alloc::vec;
 use hashbrown::HashSet;
 
 fn main() {
@@ -24,11 +21,19 @@ fn main() {
                     let block = Capability::from((message.metadata as u128) << 64 | message.data as u128);
                     loop {
                         if let Some(pid) = syscalls::spawn_thread(move |_| {
-                            let _ = syscalls::send(true, block, MessageType::Signal, 0, 0);
-                            let _ = syscalls::send(true, block, MessageType::Signal, 1, 0);
-                            let v = vec![0x69u8; 512];
-                            let p = v.as_ptr();
-                            let _ = syscalls::send(true, block, MessageType::Data, p as u64, 512);
+                            let header = if let Some(header) = fsd::read(block, 1) {
+                                unsafe { &*(header.get() as *const fsd::GptHeader) }.clone()
+                            } else {
+                                let _ = syscalls::kill(syscalls::getpid());
+                                unreachable!();
+                            };
+
+                            if header.signature == fsd::GPT_SIGNATURE {
+                                let _ = writeln!(UartWrite, "{:?}", header);
+                            } else {
+                                let _ = writeln!(UartWrite, "invalid signature :(");
+                            }
+
                             while let Some(message) = syscalls::recv(true, block) {
                                 let _ = writeln!(UartWrite, "{:?}", message);
                             }

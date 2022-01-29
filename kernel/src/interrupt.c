@@ -321,15 +321,20 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn(void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
+                    // spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
                     // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
                     // The executable may be a valid elf file. All data will be copied over to a new set of pages.
                     case 8: {
-                        void* exe = (void*) trap->xs[REGISTER_A1];
-                        size_t exe_size = trap->xs[REGISTER_A2];
-                        void* args = (void*) trap->xs[REGISTER_A3];
-                        size_t args_size = trap->xs[REGISTER_A4];
-                        capability_t* capability = (void*) trap->xs[REGISTER_A5];
+                        char* name = (void*) trap->xs[REGISTER_A1];
+                        size_t name_size = trap->xs[REGISTER_A2];
+                        void* exe = (void*) trap->xs[REGISTER_A3];
+                        size_t exe_size = trap->xs[REGISTER_A4];
+                        void* args = (void*) trap->xs[REGISTER_A5];
+                        size_t args_size = trap->xs[REGISTER_A6];
+                        capability_t* capability = (void*) trap->xs[REGISTER_A7];
+
+                        if (name_size > PROCESS_NAME_SIZE)
+                            name_size = PROCESS_NAME_SIZE;
 
                         elf_t elf = verify_elf(exe, exe_size);
                         if (elf.header == NULL) {
@@ -337,7 +342,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        pid_t pid = spawn_process_from_elf(trap->pid, &elf, 2, args, args_size);
+                        pid_t pid = spawn_process_from_elf(name, name_size, trap->pid, &elf, 2, args, args_size);
 
                         if (capability != NULL && pid != (pid_t) -1) {
                             capability_t b;

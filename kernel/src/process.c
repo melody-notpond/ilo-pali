@@ -1,48 +1,51 @@
+#include <stdatomic.h>
 #include <stdbool.h>
 
 #include "console.h"
 #include "hashmap.h"
 #include "memory.h"
 #include "process.h"
+#include "queue.h"
 
-process_t* processes;
-hashmap_t* capabilities;
-
-pid_t MAX_PID = 1024;
+hashmap_t* processes;
+queue_t* jobs_queue;
 pid_t current_pid = 0;
+
+hashmap_t* capabilities;
+atomic_bool mutating_capabilities = false;
 
 // init_processes() -> void
 // Initialises process related stuff.
 void init_processes() {
-    processes = malloc(MAX_PID * sizeof(process_t));
+    processes = create_hashmap(sizeof(pid_t), sizeof(process_t));
     capabilities = create_hashmap(sizeof(capability_t), sizeof(process_channel_t));
+    jobs_queue = create_queue(sizeof(pid_t));
 }
 
-// spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
+// get_process(pid_t) -> process_t*
+// Gets the process associated with the pid.
+process_t* get_process(pid_t pid) {
+    return hashmap_get(processes, &pid);
+}
+
+// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> pid_t
 // Spawns a process using the given elf file and parent pid. Returns -1 on failure.
-pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
+pid_t spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
     if (elf->header->type != ELF_EXECUTABLE) {
         console_puts("ELF file is not executable\n");
         return -1;
     }
 
-    pid_t pid = -1;
-    if (current_pid < MAX_PID) {
-        pid = current_pid++;
-    } else {
-        for (size_t i = 0; i < MAX_PID; i++) {
-            if (processes[i].state == PROCESS_STATE_DEAD) {
-                pid = i;
-                break;
-            }
-        }
-
-        if (pid == (uint64_t) -1)
-            return -1;
+    pid_t pid = current_pid;
+    while (hashmap_get(processes, &pid) != NULL) {
+        pid++;
     }
+    current_pid = pid + 1;
+    if (current_pid == (pid_t) -1)
+        current_pid = 0;
 
     mmu_level_1_t* top;
-    if (current_pid == 1) {
+    if (pid == 0) {
         top = get_mmu();
     } else {
         top = create_mmu_table();
@@ -105,32 +108,39 @@ pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, vo
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
-    processes[pid].last_virtual_page = (void*) max_page + PAGE_SIZE * (stack_size + 1);
-    processes[pid].xs[REGISTER_SP] = (uint64_t) processes[pid].last_virtual_page - 8;
-    processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
-    processes[pid].last_virtual_page += PAGE_SIZE;
+    process_t process = { 0 };
+    process.last_virtual_page = (void*) max_page + PAGE_SIZE * (stack_size + 1);
+    process.xs[REGISTER_SP] = (uint64_t) process.last_virtual_page - 8;
+    process.xs[REGISTER_FP] = process.xs[REGISTER_SP];
+    process.last_virtual_page += PAGE_SIZE;
 
     if (args != NULL && arg_size != 0) {
         for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE; i += PAGE_SIZE) {
-            void* physical = mmu_alloc(top, processes[pid].last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            void* physical = mmu_alloc(top, process.last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
             memcpy(kernel_space_phys2virtual(physical), args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
         }
 
-        processes[pid].xs[REGISTER_A0] = (uint64_t) processes[pid].last_virtual_page;
-        processes[pid].xs[REGISTER_A1] = arg_size;
-        processes[pid].last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE + PAGE_SIZE;
+        process.xs[REGISTER_A0] = (uint64_t) process.last_virtual_page;
+        process.xs[REGISTER_A1] = arg_size;
+        process.last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE + PAGE_SIZE;
     }
 
     process_t* parent = get_process(parent_pid);
     if (parent != NULL)
-        processes[pid].user = parent->user;
+        process.user = parent->user;
     else
-        processes[pid].user = 0;
-    processes[pid].pid = pid;
-    processes[pid].thread_source = -1;
-    processes[pid].mmu_data = top;
-    processes[pid].pc = elf->header->entry;
-    processes[pid].state = PROCESS_STATE_WAIT;
+        process.user = 0;
+    process.name = malloc(name_size + 1);
+    memcpy(process.name, name, name_size);
+    process.name[name_size] = '\0';
+    process.pid = pid;
+    process.thread_source = -1;
+    process.mmu_data = top;
+    process.pc = elf->header->entry;
+    process.state = PROCESS_STATE_WAIT;
+    hashmap_insert(processes, &pid, &process);
+    if (pid != 0)
+        queue_enqueue(jobs_queue, &pid);
     return pid;
 }
 
@@ -145,45 +155,53 @@ pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, vo
     if (parent == NULL)
         return -1;
 
-    pid_t pid = -1;
-    if (current_pid < MAX_PID) {
-        pid = current_pid++;
-    } else {
-        for (size_t i = 0; i < MAX_PID; i++) {
-            if (processes[i].state == PROCESS_STATE_DEAD) {
-                pid = i;
-                break;
-            }
-        }
-
-        if (pid == (uint64_t) -1)
-            return -1;
+    pid_t pid = current_pid;
+    while (hashmap_get(processes, &pid) != NULL) {
+        pid++;
+        if (pid == (pid_t) -1)
+            pid++;
     }
+    current_pid = pid + 1;
+    if (current_pid == (pid_t) -1)
+        current_pid = 0;
 
-    processes[pid].mmu_data = parent->mmu_data;
-    processes[pid].thread_source = parent->pid;
-    processes[pid].user = parent->user;
+    process_t process;
+    process.mmu_data = parent->mmu_data;
+    process.thread_source = parent->pid;
+    process.user = parent->user;
 
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(parent->mmu_data, parent->last_virtual_page + PAGE_SIZE * i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
     parent->last_virtual_page += PAGE_SIZE * (stack_size + 1);
-    processes[pid].xs[REGISTER_SP] = (uint64_t) parent->last_virtual_page - 8;
-    processes[pid].xs[REGISTER_FP] = processes[pid].xs[REGISTER_SP];
+    process.xs[REGISTER_SP] = (uint64_t) parent->last_virtual_page - 8;
+    process.xs[REGISTER_FP] = process.xs[REGISTER_SP];
     parent->last_virtual_page += PAGE_SIZE;
 
-    processes[pid].xs[REGISTER_A0] = (uint64_t) args;
-    processes[pid].xs[REGISTER_A1] = arg_size;
+    process.xs[REGISTER_A0] = (uint64_t) args;
+    process.xs[REGISTER_A1] = arg_size;
 
-    processes[pid].pid = pid;
-    processes[pid].pc = (uint64_t) func;
-    processes[pid].state = PROCESS_STATE_WAIT;
+    size_t name_size = 0;
+    for (; parent->name[name_size]; name_size++);
+    process.name = malloc(name_size + 1);
+    memcpy(process.name, parent->name, name_size);
+    process.name[name_size] = '\0';
+    process.pid = pid;
+    process.pc = (uint64_t) func;
+    process.state = PROCESS_STATE_WAIT;
+    hashmap_insert(processes, &pid, &process);
+    queue_enqueue(jobs_queue, &pid);
     return pid;
 }
 
 // create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
 void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     *a = 0;
     *b = 0;
     do {
@@ -214,97 +232,98 @@ void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
     });
 
     ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;
+    mutating_capabilities = false;
 }
 
 // switch_to_process(trap_t*, pid_t) -> void
 // Jumps to the given process.
 void switch_to_process(trap_t* trap, pid_t pid) {
-    if (processes[trap->pid].state != PROCESS_STATE_DEAD && processes[trap->pid].state != PROCESS_STATE_WAIT) {
-        if (processes[trap->pid].state == PROCESS_STATE_RUNNING)
-            processes[trap->pid].state = PROCESS_STATE_WAIT;
-        processes[trap->pid].pc = trap->pc;
+    process_t* last = get_process(trap->pid);
+    process_t* next = get_process(pid);
+
+    if (last != NULL && last->state != PROCESS_STATE_DEAD) {
+        if (pid != trap->pid)
+            queue_enqueue(jobs_queue, &trap->pid);
+        if (last->state == PROCESS_STATE_RUNNING)
+            last->state = PROCESS_STATE_WAIT;
+        last->pc = trap->pc;
 
         for (int i = 0; i < 32; i++) {
-            processes[trap->pid].xs[i] = trap->xs[i];
+            last->xs[i] = trap->xs[i];
         }
 
         for (int i = 0; i < 32; i++) {
-            processes[trap->pid].fs[i] = trap->fs[i];
+            last->fs[i] = trap->fs[i];
         }
     }
 
-    trap->pid = pid;
-    trap->pc = processes[pid].pc;
+    trap->pid = next->pid;
+    trap->pc = next->pc;
 
     for (int i = 0; i < 32; i++) {
-        trap->xs[i] = processes[pid].xs[i];
+        trap->xs[i] = next->xs[i];
     }
 
     for (int i = 0; i < 32; i++) {
-        trap->fs[i] = processes[pid].fs[i];
+        trap->fs[i] = next->fs[i];
     }
 
-    set_mmu(processes[pid].mmu_data);
+    set_mmu(next->mmu_data);
 
-    processes[pid].state = PROCESS_STATE_RUNNING;
+    next->state = PROCESS_STATE_RUNNING;
 }
 
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns the given pid if not found.
 pid_t get_next_waiting_process(pid_t pid) {
+    // TODO: timer interrupt
     while (true) {
-        for (pid_t p = pid + 1; p != pid; p = (p + 1 < MAX_PID ? p + 1 : 0)) {
-            if (processes[p].thread_source != (uint64_t) -1 && processes[processes[p].thread_source].state == PROCESS_STATE_DEAD) {
-                kill_process(p);
+        size_t len = queue_len(jobs_queue);
+        while (len) {
+            pid_t next_pid;
+            queue_dequeue(jobs_queue, &next_pid);
+
+            if (next_pid == pid) {
+                len--;
                 continue;
             }
 
-            if (processes[p].state == PROCESS_STATE_WAIT)
-                return p;
-            else if (processes[p].state == PROCESS_STATE_BLOCK_SLEEP) {
-                time_t wait = processes[p].wake_on_time;
+            process_t* process = get_process(next_pid);
+            if (process == NULL) {
+                len--;
+                continue;
+            }
+            if (process->state == PROCESS_STATE_WAIT)
+                return next_pid;
+            else if (process->state == PROCESS_STATE_BLOCK_SLEEP) {
+                time_t wait = process->wake_on_time;
                 time_t now = get_time();
+
                 if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
-                    processes[p].xs[REGISTER_A0] = now.seconds;
-                    processes[p].xs[REGISTER_A1] = now.micros;
-                    return p;
+                    process->xs[REGISTER_A0] = now.seconds;
+                    process->xs[REGISTER_A1] = now.micros;
+                    return next_pid;
                 }
-            } else if (processes[p].state == PROCESS_STATE_BLOCK_LOCK) {
+            } else if (process->state == PROCESS_STATE_BLOCK_LOCK) {
                 mmu_level_1_t* current = get_mmu();
-                if (current != processes[p].mmu_data)
-                    set_mmu(processes[p].mmu_data);
-                if (lock_stop(processes[p].lock_ref, processes[p].lock_type, processes[p].lock_value)) {
-                    processes[p].xs[REGISTER_A0] = 0;
-                    return p;
+                if (current != process->mmu_data)
+                    set_mmu(process->mmu_data);
+                if (lock_stop(process->lock_ref, process->lock_type, process->lock_value)) {
+                    process->xs[REGISTER_A0] = 0;
+                    return next_pid;
                 }
-                if (current != processes[p].mmu_data)
+                if (current != process->mmu_data)
                     set_mmu(current);
             }
+
+            queue_enqueue(jobs_queue, &next_pid);
+            len--;
         }
 
-        if (processes[pid].state == PROCESS_STATE_RUNNING)
-            return pid;
-        else if (processes[pid].state == PROCESS_STATE_BLOCK_SLEEP) {
-            time_t wait = processes[pid].wake_on_time;
-            time_t now = get_time();
-            if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
-                processes[pid].xs[REGISTER_A0] = now.seconds;
-                processes[pid].xs[REGISTER_A1] = now.micros;
-                return pid;
-            }
-        } else if (processes[pid].state == PROCESS_STATE_BLOCK_LOCK && lock_stop(processes[pid].lock_ref, processes[pid].lock_type, processes[pid].lock_value)) {
-            processes[pid].xs[REGISTER_A0] = 0;
+        if (get_process(pid)->state == PROCESS_STATE_RUNNING) {
             return pid;
         }
     }
-}
-
-// get_process(pid_t) -> process_t*
-// Gets the process associated with the pid.
-process_t* get_process(pid_t pid) {
-    if (processes[pid].state == PROCESS_STATE_DEAD)
-        return NULL;
-    return &processes[pid];
 }
 
 static bool find_associated_dead_capability(void* data, void* _key, void* value) {
@@ -316,10 +335,19 @@ static bool find_associated_dead_capability(void* data, void* _key, void* value)
 // kill_process(pid_t) -> void
 // Kills a process.
 void kill_process(pid_t pid) {
-    if (processes[pid].state == PROCESS_STATE_DEAD)
+    process_t* process = hashmap_get(processes, &pid);
+    if (process == NULL)
+        return;
+
+    if (process->state == PROCESS_STATE_DEAD)
         return;
 
     size_t i = 0, j = 0;
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel;
     while ((channel = hashmap_find(capabilities, (void*) pid, find_associated_dead_capability, &i, &j))) {
         free(channel->message_queue);
@@ -329,43 +357,65 @@ void kill_process(pid_t pid) {
         channel->len = 0;
         channel->receiver = 0;
     }
+    mutating_capabilities = false;
 
-    if (processes[pid].mmu_data == get_mmu())
-        set_mmu(processes[0].mmu_data);
+    if (process->mmu_data == get_mmu())
+        set_mmu(get_process(0)->mmu_data);
 
-    if (processes[pid].thread_source == (pid_t) -1)
-        clean_mmu_table(processes[pid].mmu_data);
-    processes[pid].state = PROCESS_STATE_DEAD;
+    if (process->thread_source == (pid_t) -1)
+        clean_mmu_table(process->mmu_data);
+    hashmap_remove(processes, &pid);
 }
 
 // transfer_capability(capability_t, pid_t, pid_t) -> int
 // Transfers the given capability to a new process. Returns 0 if successful, 1 if the capability is invalid, and 2 if the new owner doesn't exist.
 int transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel = hashmap_get(capabilities, &capability);
 
-    if (channel == NULL || channel->message_queue == NULL || channel->receiver != old_owner)
+    if (channel == NULL || channel->message_queue == NULL || channel->receiver != old_owner) {
+        mutating_capabilities = false;
         return 1;
+    }
     process_t* process = get_process(new_owner);
-    if (process == NULL)
+    if (process == NULL) {
+        mutating_capabilities = false;
         return 2;
+    }
     process_t* current = get_process(old_owner);
-    if ((process->pid == 0 || new_owner == 0 || process->thread_source == 0) && current->thread_source != 0 && current->pid != 0)
+    if ((process->pid == 0 || new_owner == 0 || process->thread_source == 0) && current->thread_source != 0 && current->pid != 0) {
+        mutating_capabilities = false;
         return 1;
+    }
     channel->receiver = new_owner;
+    mutating_capabilities = false;
     return 0;
 }
 
 // clone_capability(pid_t, capability_t, capability_t*) -> int
 // Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
 int clone_capability(pid_t pid, capability_t original, capability_t* new) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel = hashmap_get(capabilities, &original);
-    if (channel == NULL)
+    if (channel == NULL) {
+        mutating_capabilities = false;
         return 1;
+    }
 
     process_t* receiver = get_process(channel->receiver);
     process_t* process = get_process(pid);
-    if (receiver->pid != process->pid && receiver->pid != process->thread_source && receiver->thread_source != process->pid && receiver->thread_source != process->thread_source)
+    if (receiver->pid != process->pid && receiver->pid != process->thread_source && receiver->thread_source != process->pid && receiver->thread_source != process->thread_source) {
+        mutating_capabilities = false;
         return 1;
+    }
 
     *new = 0;
     do {
@@ -382,44 +432,70 @@ int clone_capability(pid_t pid, capability_t original, capability_t* new) {
         .receiver = pid,
     });
 
+    mutating_capabilities = false;
     return 0;
 }
 
 // enqueue_message_to_channel(capability_t, process_message_t) -> int
 // Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
 int enqueue_message_to_channel(capability_t capability, process_message_t message) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* sender_channel = hashmap_get(capabilities, &capability);
-    if (sender_channel == NULL)
+    if (sender_channel == NULL) {
+        mutating_capabilities = false;
         return 1;
+    }
     process_channel_t* channel = hashmap_get(capabilities, &sender_channel->sender);
-    if (channel == NULL)
+    if (channel == NULL) {
+        mutating_capabilities = false;
         return 1;
+    }
 
-    if (channel->message_queue == NULL)
+    if (channel->message_queue == NULL) {
+        mutating_capabilities = false;
         return 3;
+    }
 
-    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
+    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE) {
+        mutating_capabilities = false;
         return 2;
+    }
 
     channel->message_queue[channel->end++] = message;
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->end = 0;
     channel->len++;
+    mutating_capabilities = false;
     return 0;
 }
 
 // enqueue_interrupt_to_channel(capability_t, uint32_t) -> int
 // Enqueues an interrupt to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
 int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL)
+    if (channel == NULL) {
+        mutating_capabilities = false;
         return 1;
+    }
 
-    if (channel->message_queue == NULL)
+    if (channel->message_queue == NULL) {
+        mutating_capabilities = false;
         return 3;
+    }
 
-    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE)
+    if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE) {
+        mutating_capabilities = false;
         return 2;
+    }
 
     channel->message_queue[channel->end++] = (process_message_t) {
         .type = 4,
@@ -430,45 +506,75 @@ int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->end = 0;
     channel->len++;
+    mutating_capabilities = false;
     return 0;
 }
 
 // dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL || channel->receiver != pid)
+    if (channel == NULL || channel->receiver != pid) {
+        mutating_capabilities = false;
         return 1;
+    }
 
-    if (channel->message_queue == NULL)
+    if (channel->message_queue == NULL) {
+        mutating_capabilities = false;
         return 3;
+    }
 
-    if (channel->len == 0)
+    if (channel->len == 0) {
+        mutating_capabilities = false;
         return 2;
+    }
 
     *message = channel->message_queue[channel->start++];
     if (channel->start >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->start = 0;
     channel->len--;
+    mutating_capabilities = false;
     return 0;
 }
 
 // capability_connects_to_initd(capability_t) -> bool
 // Returns true if the capability connects to initd or one of its threads.
 bool capability_connects_to_initd(capability_t capability) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
+        f = false;
+    }
+
     process_channel_t* channel = hashmap_get(capabilities, &capability);
     process_channel_t* sender = hashmap_get(capabilities, &channel->sender);
-    if (channel == NULL || sender == NULL || channel->message_queue == NULL || sender->message_queue == NULL)
+    if (channel == NULL || sender == NULL || channel->message_queue == NULL || sender->message_queue == NULL) {
+        mutating_capabilities = false;
         return false;
-    if (channel->receiver == 0 || sender->receiver == 0)
+    }
+    if (channel->receiver == 0 || sender->receiver == 0) {
+        mutating_capabilities = false;
         return true;
+    }
     process_t* receiver = get_process(channel->receiver);
-    if (receiver == NULL)
+    if (receiver == NULL) {
+        mutating_capabilities = false;
         return false;
-    if (receiver->thread_source == 0)
+    }
+    if (receiver->thread_source == 0) {
+        mutating_capabilities = false;
         return true;
+    }
     receiver = get_process(sender->receiver);
-    if (receiver == NULL)
+    if (receiver == NULL) {
+        mutating_capabilities = false;
         return false;
-    return receiver->thread_source == 0;
+    }
+    bool result = receiver->thread_source == 0;
+    mutating_capabilities = false;
+    return result;
 }

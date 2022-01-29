@@ -12,7 +12,8 @@ void init_time(fdt_t* fdt) {
     void* cpus = fdt_path(fdt, "/cpus", NULL);
     struct fdt_property timebase_prop = fdt_get_property(fdt, cpus, "timebase-frequency");
     timebase = be_to_le(timebase_prop.len * 8, timebase_prop.data);
-    console_printf("[init_time] timebase set to %lx\n", timebase);
+    time_t time = get_time();
+    console_printf("[init_time] timebase set to %lx\ncurrent time is %lx::%lx\n", timebase, time.seconds, time.micros);
 }
 
 // get_time() -> time_t

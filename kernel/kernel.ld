@@ -20,6 +20,7 @@ SECTIONS
     .rodata : { *(.rodata) }
 
     . = ALIGN(4096);
+    PROVIDE( __global_pointer$ = . + (4K / 2) );
     PROVIDE(sdata_start = .);
     .sdata : { *(.sdata) }
     .sdata : { *(.bss) }

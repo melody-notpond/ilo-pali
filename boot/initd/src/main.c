@@ -47,7 +47,7 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
             }
 
             capability_t cap;
-            pid_t pid = spawn_process(elf, size, NULL, 0, &cap);
+            pid_t pid = spawn_process((void*) data, meta, elf, size, NULL, 0, &cap);
             send(true, &capability, MSG_TYPE_INT, pid, 0);
             transfer_capability(&cap, pid);
             send(true, &capability, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
@@ -191,7 +191,7 @@ void _start(void* fdt) {
                 if (module_elf == NULL)
                     break;
             }
-            pid_t pid = spawn_process(module_elf, module_size, NULL, 0, &cap);
+            pid_t pid = spawn_process((char*) module.bytes, module.len, module_elf, module_size, NULL, 0, &cap);
             struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
             args->cap = cap;
             args->pid = pid;
@@ -222,7 +222,7 @@ void _start(void* fdt) {
                 p[0] = be_to_le(64, reg.data);
                 p[1] = be_to_le(64, reg.data + 8); // TODO: use #address-cells and #size-cells
                 p[2] = be_to_le(interrupts.len * 8, interrupts.data);
-                pid_t pid = spawn_process(module_elf, module_size, p, sizeof(p), &cap);
+                pid_t pid = spawn_process((char*) module.bytes, module.len, module_elf, module_size, p, sizeof(p), &cap);
                 struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
                 args->cap = cap;
                 args->pid = pid;

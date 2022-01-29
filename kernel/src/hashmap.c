@@ -196,7 +196,7 @@ void hashmap_remove(hashmap_t* hashmap, void* key) {
 
     for (size_t i = 0; i < bucket->len; i++) {
         if (memeq(bucket->keys + i * key_size, key, key_size)) {
-            for (size_t j = i + 1; j < bucket->len; j++) {
+            for (size_t j = i; j < bucket->len; j++) {
                 memcpy(bucket->keys + j * key_size, bucket->keys + (j + 1) * key_size, key_size);
                 memcpy(bucket->values + j * val_size, bucket->values + (j + 1) * val_size, val_size);
             }

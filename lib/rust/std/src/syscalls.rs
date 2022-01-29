@@ -181,6 +181,8 @@ pub fn sleep(interval: Time) -> Time {
 }
 
 pub fn spawn_process<T>(
+    name: *const u8,
+    name_size: usize,
     exec: *const u8,
     exec_size: usize,
     args: *const T,
@@ -190,13 +192,13 @@ pub fn spawn_process<T>(
     match unsafe {
         syscall(
             8,
+            name as u64,
+            name_size as u64,
             exec as u64,
             exec_size as u64,
             args as u64,
             arg_size as u64,
             capability.map(|v| v as *mut Capability as u64).unwrap_or(0),
-            0,
-            0,
         )
         .0
     } {

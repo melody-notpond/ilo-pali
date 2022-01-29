@@ -60,10 +60,10 @@ int setuid(pid_t pid, uid_t uid);
 // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
 time_t sleep(uint64_t seconds, uint64_t micros);
 
-// spawn(void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
+// spawn(char*, size_t, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
 // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
 // The executable may be a valid elf file. All data will be copied over to a new set of pages.
-uint64_t spawn_process(void* exe, size_t exe_size, void* args, size_t arg_size, capability_t* capability);
+uint64_t spawn_process(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t arg_size, capability_t* capability);
 
 // kill(pid_t pid) -> int status
 // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.

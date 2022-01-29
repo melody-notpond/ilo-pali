@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <stdbool.h>
 
 #include "console.h"
@@ -7,6 +8,7 @@
 extern page_t pages_bottom;
 page_t* memory_start;
 page_t* heap_bottom;
+static atomic_bool mutating_heap = false;
 
 // init_pages(fdt_t*) -> void
 // Initialises the pages to be ready for page allocation.
@@ -57,9 +59,16 @@ uint16_t* page_ref_count(page_t* page) {
 // mark_as_used(void*, size_t) -> void
 // Marks the given pages as used.
 void mark_as_used(void* page, size_t size) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_heap, &f, true)) {
+        f = false;
+    }
+
     uint16_t* p = page_ref_count(page);
-    if (p == NULL)
+    if (p == NULL) {
+        mutating_heap = false;
         return;
+    }
 
     size_t count = (size + PAGE_SIZE - 1) / PAGE_SIZE;
 
@@ -67,11 +76,18 @@ void mark_as_used(void* page, size_t size) {
         *p = 1;
         p++;
     }
+
+    mutating_heap = false;
 }
 
 // alloc_pages(size_t) -> void*
 // Allocates a number of pages, zeroing out the values.
 void* alloc_pages(size_t count) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_heap, &f, true)) {
+        f = false;
+    }
+
     uint16_t* p = (uint16_t*) &pages_bottom;
 
     for (; p < (uint16_t*) heap_bottom - count; p++) {
@@ -102,23 +118,33 @@ void* alloc_pages(size_t count) {
                     *q = 0;
                 }
 
+                mutating_heap = false;
                 if (top)
                     return kernel_space_virt2physical(page);
+
                 return page;
             }
         }
     }
 
     console_printf("[alloc_pages] unable to allocate %lx pages\n", count);
+    mutating_heap = false;
     return NULL;
 }
 
 // incr_page_ref_count(void*, size_t) -> void
 // Increments the reference count of the selected pages.
 void incr_page_ref_count(void* page, size_t count) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_heap, &f, true)) {
+        f = false;
+    }
+
     uint16_t* rc = page_ref_count(page);
-    if (rc == NULL)
+    if (rc == NULL) {
+        mutating_heap = false;
         return;
+    }
 
     for (size_t i = 0; i < count; i++) {
         if (*rc != UINT16_MAX && *rc != 0) {
@@ -126,16 +152,25 @@ void incr_page_ref_count(void* page, size_t count) {
         }
         rc++;
     }
+
+    mutating_heap = false;
 }
 
 // dealloc_pages(void*, size_t) -> void
 // Decrements the reference count of the selected pages.
 void dealloc_pages(void* page, size_t count) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_heap, &f, true)) {
+        f = false;
+    }
+
     if (page > (void*) KERNEL_SPACE_OFFSET)
         page = kernel_space_virt2physical(page);
     uint16_t* rc = page_ref_count(page);
-    if (rc == NULL)
+    if (rc == NULL) {
+        mutating_heap = false;
         return;
+    }
 
     for (size_t i = 0; i < count; i++) {
         if (*rc != 0) {
@@ -143,6 +178,8 @@ void dealloc_pages(void* page, size_t count) {
         }
         rc++;
     }
+
+    mutating_heap = false;
 }
 
 struct s_free_bucket {
@@ -154,6 +191,8 @@ struct s_free_bucket {
 };
 
 typedef struct {
+    atomic_bool mutating;
+
     struct s_free_bucket* used;
     struct s_free_bucket* free_16;
     struct s_free_bucket* free_64;
@@ -168,13 +207,16 @@ static free_buckets_alloc_t GLOBAL_ALLOC = { 0 };
 static const size_t GLOBAL_ALLOC_FALLBACK_PAGE_COUNT = 65;
 
 struct s_free_bucket* free_buckets_format_unused(void* data, size_t bucket_size, size_t total_size) {
+    total_size *= PAGE_SIZE;
     size_t size = sizeof(struct s_free_bucket) + bucket_size;
     for (size_t i = 0; i + size < total_size; i += size) {
         struct s_free_bucket* bucket = data + i;
         if (i > 0)
             bucket->prev = data + i - size;
+        else bucket->prev = NULL;
         if (i + size < total_size)
             bucket->next = data + i + size;
+        else bucket->next = NULL;
         bucket->size = bucket_size;
         bucket->origin = 0;
     }
@@ -183,12 +225,22 @@ struct s_free_bucket* free_buckets_format_unused(void* data, size_t bucket_size,
 }
 
 void* free_buckets_alloc(size_t size, uint64_t origin) {
+    if (size == 0)
+        return NULL;
+
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&GLOBAL_ALLOC.mutating, &f, true)) {
+        f = false;
+    }
+
     struct s_free_bucket* bucket = NULL;
     if (size <= 16) {
         if (GLOBAL_ALLOC.free_16 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_16 = free_buckets_format_unused(unformatted, 16, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -197,8 +249,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 64) {
         if (GLOBAL_ALLOC.free_64 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_64 = free_buckets_format_unused(unformatted, 64, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -207,8 +261,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 256) {
         if (GLOBAL_ALLOC.free_256 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_256 = free_buckets_format_unused(unformatted, 256, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -217,8 +273,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 1024) {
         if (GLOBAL_ALLOC.free_1024 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_1024 = free_buckets_format_unused(unformatted, 1024, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -227,8 +285,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 4096) {
         if (GLOBAL_ALLOC.free_4096 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_4096 = free_buckets_format_unused(unformatted, 4096, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -237,8 +297,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 16384) {
         if (GLOBAL_ALLOC.free_16384 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_16384 = free_buckets_format_unused(unformatted, 16384, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -247,8 +309,10 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else if (size <= 65536) {
         if (GLOBAL_ALLOC.free_65536 == NULL) {
             void* unformatted = kernel_space_phys2virtual(alloc_pages(GLOBAL_ALLOC_FALLBACK_PAGE_COUNT));
-            if (unformatted == NULL)
+            if (unformatted == NULL) {
+                GLOBAL_ALLOC.mutating = false;
                 return NULL;
+            }
             GLOBAL_ALLOC.free_65536 = free_buckets_format_unused(unformatted, 65536, GLOBAL_ALLOC_FALLBACK_PAGE_COUNT);
         }
 
@@ -257,13 +321,17 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     } else {
         size_t page_count = (size + sizeof(struct s_free_bucket) + PAGE_SIZE - 1) / PAGE_SIZE;
         bucket = kernel_space_phys2virtual(alloc_pages(page_count));
-        if (bucket == NULL)
+        if (bucket == NULL) {
+            GLOBAL_ALLOC.mutating = false;
             return NULL;
+        }
         bucket->size = size;
     }
 
-    if (bucket == NULL)
+    if (bucket == NULL) {
+        GLOBAL_ALLOC.mutating = false;
         return NULL;
+    }
 
     bucket->origin = origin;
     bucket->next = GLOBAL_ALLOC.used;
@@ -272,6 +340,7 @@ void* free_buckets_alloc(size_t size, uint64_t origin) {
     }
     GLOBAL_ALLOC.used = bucket;
     bucket->prev = NULL;
+    GLOBAL_ALLOC.mutating = false;
     return bucket + 1;
 }
 
@@ -285,6 +354,11 @@ void* malloc(size_t size) {
 void free(void* p) {
     if (p == NULL)
         return;
+
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&GLOBAL_ALLOC.mutating, &f, true)) {
+        f = false;
+    }
 
     struct s_free_bucket* bucket = p;
     bucket--;
@@ -336,6 +410,8 @@ void free(void* p) {
     } else {
         dealloc_pages(bucket, (bucket->size + sizeof(struct s_free_bucket) + PAGE_SIZE - 1) / PAGE_SIZE);
     }
+
+    GLOBAL_ALLOC.mutating = false;
 }
 
 void* realloc(void* p, size_t new_size) {
@@ -361,6 +437,11 @@ void* realloc(void* p, size_t new_size) {
 // debug_free_buckets_alloc(free_buckets_alloc_t*) -> void
 // Prints out the used buckets.
 void debug_free_buckets_alloc() {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&GLOBAL_ALLOC.mutating, &f, true)) {
+        f = false;
+    }
+
     console_puts("Starting debug\n");
     struct s_free_bucket const* bucket = GLOBAL_ALLOC.used;
     while (bucket != NULL) {
@@ -368,6 +449,8 @@ void debug_free_buckets_alloc() {
         bucket = bucket->next;
     }
     console_puts("Ending debug\n");
+
+    GLOBAL_ALLOC.mutating = false;
 }
 
 // memcpy(void*, const void*, unsigned long int) -> void*

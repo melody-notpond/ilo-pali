@@ -68,7 +68,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    spawn_process_from_elf(0, &elf, 2, NULL, 0);
+    spawn_process_from_elf("initd", 5, 0, &elf, 2, NULL, 0);
     free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
@@ -91,6 +91,7 @@ void kinit(uint64_t hartid, void* fdt) {
     asm volatile("csrw sie, %0" : "=r" (sie));
 
     console_puts("[kinit] starting initd\n");
+    trap.pid = -1;
     switch_to_process(&trap, 0);
     sbi_set_timer(0);
     jump_out_of_trap(&trap);

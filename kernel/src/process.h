@@ -9,7 +9,8 @@
 #include "mmu.h"
 #include "time.h"
 
-#define PROCESS_MESSAGE_QUEUE_SIZE 128
+#define PROCESS_MESSAGE_QUEUE_SIZE  128
+#define PROCESS_NAME_SIZE           255
 
 typedef __uint128_t capability_t;
 typedef uint64_t pid_t;
@@ -31,6 +32,8 @@ typedef enum {
 } process_state_t;
 
 typedef struct {
+    char* name;
+
     pid_t pid;
     pid_t thread_source;
 
@@ -63,9 +66,9 @@ typedef struct {
 // Initialises process related stuff.
 void init_processes();
 
-// spawn_process_from_elf(pid_t, elf_t*, size_t, void*, size_t) -> pid_t
+// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> pid_t
 // Spawns a process using the given elf file and parent pid. Returns -1 on failure.
-pid_t spawn_process_from_elf(pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+pid_t spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
 
 // spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> pid_t
 // Spawns a thread from the given process. Returns -1 on failure.

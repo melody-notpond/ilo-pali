@@ -1,15 +1,40 @@
+#include <stdatomic.h>
+#include <stdbool.h>
+
 #include "console.h"
 #include "opensbi.h"
-#include <stddef.h>
+
+atomic_bool console_lock = false;
+
+// console_write(char*, size_t) -> void
+// Writes the given substring to the UART.
+void console_write(char* s, size_t len) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&console_lock, &f, true)) {
+        f = false;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        sbi_console_putchar(s[i]);
+    }
+
+    console_lock = false;
+}
 
 // console_puts(char*) -> void
 // Prints out a string onto the UART.
 int console_puts(const char* s) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&console_lock, &f, true)) {
+        f = false;
+    }
+
     while (*s) {
         sbi_console_putchar(*s);
         s++;
     }
 
+    console_lock = false;
     return 0;
 }
 
@@ -22,6 +47,11 @@ typedef enum {
 // console_vprintf(void (*)(char), char*, ...) -> void
 // Writes its arguments according to the format string and write function provided. Takes in a va_list.
 int console_vprintf(const char* format, va_list va) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&console_lock, &f, true)) {
+        f = false;
+    }
+
     for (; *format; format++) {
         // Formatters
         if (*format == '%') {
@@ -141,6 +171,7 @@ console_printf_fallthrough: {
         }
     }
 
+    console_lock = false;
     return 0;
 }
 
@@ -168,6 +199,11 @@ unsigned int console_log_16(unsigned long long n) {
 // console_put_hexdump(void*, unsigned long long)
 // Dumps a hexdump onto the UART port.
 void console_put_hexdump(void* data, unsigned long long size) {
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&console_lock, &f, true)) {
+        f = false;
+    }
+
     unsigned int num_zeros = console_log_16(size);
     unsigned char* data_char = (unsigned char*) data;
 
@@ -217,5 +253,7 @@ void console_put_hexdump(void* data, unsigned long long size) {
 
         console_puts("|\n");
     }
+
+    console_lock = false;
 }
 

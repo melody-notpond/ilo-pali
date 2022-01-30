@@ -1,5 +1,6 @@
 .global handle_interrupt
 .global jump_out_of_trap
+.global hart_suspend_resume
 
 /*
 typedef struct {
@@ -106,3 +107,15 @@ jump_out_of_trap:
     ld x31, 0x0f8(t6)
     sret
 
+hart_suspend_resume:
+    # Set sp
+    ld sp, 0x108(a1)
+
+    # Call interrupt handler
+    csrr a0, scause
+    li a0, 0x8000000000000005
+    jal interrupt_handler
+    mv t6, a0
+
+    # Jump out of trap
+    j jump_out_of_trap

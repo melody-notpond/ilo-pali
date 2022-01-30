@@ -424,12 +424,19 @@ void* realloc(void* p, size_t new_size) {
     if (bucket->size >= new_size)
         return p;
 
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&GLOBAL_ALLOC.mutating, &f, true)) {
+        f = false;
+    }
+
     uint64_t origin;
     asm volatile("mv %0, ra" : "=r" (origin));
     void* new = free_buckets_alloc(new_size, origin);
     if (new == NULL)
         return NULL;
     memcpy(new, p, bucket->size);
+
+    GLOBAL_ALLOC.mutating = false;
     free(p);
     return new;
 }

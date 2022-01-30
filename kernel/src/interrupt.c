@@ -15,15 +15,23 @@ struct interrupt_list {
     struct interrupt_list* next;
     capability_t receiver;
 } *interrupt_subscribers[MAX_INTERRUPT] = { NULL };
+atomic_bool interrupt_subscribers_lock = false;
 
 #define CONTEXT(hartid, machine) (2*hartid+machine)
 
+extern void hart_suspend_resume(uint64_t hartid, trap_t* trap);
+
+// timer_switch(trap_t*) -> void
+// Switches to a new process, or suspends the hart if no process is available.
 void timer_switch(trap_t* trap) {
     pid_t next_pid = get_next_waiting_process(trap->pid);
-    switch_to_process(trap, next_pid);
+    if (next_pid != (pid_t) -1)
+        switch_to_process(trap, next_pid);
     time_t next = get_time();
     next.micros += 10;
     set_next_time_interrupt(next);
+    if (next_pid == (pid_t) -1)
+        sbi_hart_suspend(0, (unsigned long) hart_suspend_resume, (unsigned long) trap);
 }
 
 bool lock_equals(void* ref, int type, uint64_t value) {
@@ -41,9 +49,9 @@ bool lock_equals(void* ref, int type, uint64_t value) {
     }
 }
 
-// init_interrupts(fdt_t*) -> void
+// init_interrupts(uint64_t, fdt_t*) -> void
 // Inits interrupts.
-void init_interrupts(fdt_t* fdt) {
+void init_interrupts(uint64_t hartid, fdt_t* fdt) {
     void* node = fdt_find(fdt, "plic", NULL);
     struct fdt_property reg = fdt_get_property(fdt, node, "reg");
 
@@ -55,11 +63,12 @@ void init_interrupts(fdt_t* fdt) {
         ((uint32_t*) plic_base)[i] = 0xffffffff;
     }
 
+    // TODO: spread interrupts across harts
     for (size_t i = 0; i < 1024 / 4; i++) {
-        ((uint32_t*) (plic_base + 0x002000 + 0x80 * CONTEXT(0, 1)))[i] = 0xffffffff;
+        ((uint32_t*) (plic_base + 0x002000 + 0x80 * CONTEXT(hartid, 1)))[i] = 0xffffffff;
     }
 
-    *(uint32_t*) (plic_base + 0x200000 + 0x1000 * CONTEXT(0, 1)) = 0;
+    *(uint32_t*) (plic_base + 0x200000 + 0x1000 * CONTEXT(hartid, 1)) = 0;
 }
 
 // lock_stop(void*, int, uint64_t) -> bool
@@ -85,15 +94,22 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // External interrupt
             case 9: {
-                volatile uint32_t* claim = (volatile uint32_t*) (plic_base + 0x200004 + 0x1000 * CONTEXT(0, 1));
+                volatile uint32_t* claim = (volatile uint32_t*) (plic_base + 0x200004 + 0x1000 * CONTEXT(trap->hartid, 1));
                 uint32_t interrupt_id = *claim;
 
                 if (interrupt_id != 0 && interrupt_id <= MAX_INTERRUPT) {
+                    bool f = false;
+                    while (!atomic_compare_exchange_weak(&interrupt_subscribers_lock, &f, true)) {
+                        f = false;
+                    }
+
                     struct interrupt_list* list = interrupt_subscribers[interrupt_id - 1];
                     while (list) {
                         enqueue_interrupt_to_channel(list->receiver, interrupt_id);
                         list = list->next;
                     }
+
+                    interrupt_subscribers_lock = false;
                 }
 
                 *claim = interrupt_id;
@@ -102,6 +118,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Everything else is either invalid or handled by the firmware.
             default:
+                console_printf("async cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
                 while(1);
                 break;
         }
@@ -142,11 +159,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     case 0: {
                         char* data = (void*) trap->xs[REGISTER_A1];
                         size_t length = trap->xs[REGISTER_A2];
-
-                        for (size_t i = 0; i < length; i++) {
-                            sbi_console_putchar(data[i]);
-                        }
-
+                        console_write(data, length);
                         trap->xs[REGISTER_A0] = 0;
                         break;
                     }
@@ -669,12 +682,19 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (cap == NULL || id == 0 || id > MAX_INTERRUPT)
                             break;
                         id--;
+
+                        bool f = false;
+                        while (!atomic_compare_exchange_weak(&interrupt_subscribers_lock, &f, true)) {
+                            f = false;
+                        }
+
                         struct interrupt_list* new = malloc(sizeof(struct interrupt_list));
                         *new = (struct interrupt_list) {
                             .next = interrupt_subscribers[id],
                             .receiver = *cap,
                         };
                         interrupt_subscribers[id] = new;
+                        interrupt_subscribers_lock = false;
                         break;
                     }
 

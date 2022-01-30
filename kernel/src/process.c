@@ -27,8 +27,8 @@ static inline void LOCK_READ_PROCESSES() {
     while (true) {
         while (processes_lock & 1);
 
-        uint64_t new = processes_lock + 2;
         uint64_t old = processes_lock;
+        uint64_t new = old + 2;
 
         if (old & 1)
             continue;
@@ -64,8 +64,8 @@ static inline void LOCK_RELEASE_PROCESSES() {
     if (processes_lock == 1)
         processes_lock = 0;
     else {
-        uint64_t new = processes_lock - 2;
         uint64_t old = processes_lock;
+        uint64_t new = old - 2;
         while (!atomic_compare_exchange_weak(&processes_lock, &old, new)) {
             new = old - 2;
         }
@@ -242,9 +242,10 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
         while (!atomic_compare_exchange_weak(&parent->mutex_lock, &f, true)) {
             f = false;
         }
-    } else return NULL;
-    if (parent == NULL)
+    } else {
+        LOCK_RELEASE_PROCESSES();
         return NULL;
+    }
     if (parent->thread_source != (uint64_t) -1) {
         pid_t source = parent->thread_source;
         parent->mutex_lock = false;
@@ -254,7 +255,10 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
             while (!atomic_compare_exchange_weak(&parent->mutex_lock, &f, true)) {
                 f = false;
             }
-        } else return NULL;
+        } else {
+            LOCK_RELEASE_PROCESSES();
+            return NULL;
+        }
     }
 
     pid_t pid = 0;
@@ -397,73 +401,71 @@ void switch_to_process(trap_t* trap, pid_t pid) {
 }
 
 // get_next_waiting_process(pid_t) -> pid_t
-// Searches for the next waiting process. Returns the given pid if not found.
+// Searches for the next waiting process. Returns -1 if not found.
 pid_t get_next_waiting_process(pid_t pid) {
-    // TODO: timer interrupt
-    while (true) {
-        bool f = false;
-        while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
-            f = false;
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
+        f = false;
+    }
+
+    size_t len = queue_len(jobs_queue);
+    while (len) {
+        pid_t next_pid;
+        queue_dequeue(jobs_queue, &next_pid);
+
+        if (next_pid == pid) {
+            len--;
+            continue;
         }
 
-        size_t len = queue_len(jobs_queue);
-        while (len) {
-            pid_t next_pid;
-            queue_dequeue(jobs_queue, &next_pid);
+        process_t* process = get_process(next_pid);
+        if (process == NULL) {
+            len--;
+            continue;
+        }
+        if (process->state == PROCESS_STATE_WAIT) {
+            mutating_jobs_queue = false;
+            unlock_process(process);
+            return next_pid;
+        } else if (process->state == PROCESS_STATE_BLOCK_SLEEP) {
+            time_t wait = process->wake_on_time;
+            time_t now = get_time();
 
-            if (next_pid == pid) {
-                len--;
-                continue;
-            }
-
-            process_t* process = get_process(next_pid);
-            if (process == NULL) {
-                len--;
-                continue;
-            }
-            if (process->state == PROCESS_STATE_WAIT) {
+            if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
+                process->xs[REGISTER_A0] = now.seconds;
+                process->xs[REGISTER_A1] = now.micros;
                 mutating_jobs_queue = false;
                 unlock_process(process);
                 return next_pid;
-            } else if (process->state == PROCESS_STATE_BLOCK_SLEEP) {
-                time_t wait = process->wake_on_time;
-                time_t now = get_time();
-
-                if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
-                    process->xs[REGISTER_A0] = now.seconds;
-                    process->xs[REGISTER_A1] = now.micros;
-                    mutating_jobs_queue = false;
-                    unlock_process(process);
-                    return next_pid;
-                }
-            } else if (process->state == PROCESS_STATE_BLOCK_LOCK) {
-                mmu_level_1_t* current = get_mmu();
-                if (current != process->mmu_data)
-                    set_mmu(process->mmu_data);
-                if (lock_stop(process->lock_ref, process->lock_type, process->lock_value)) {
-                    process->xs[REGISTER_A0] = 0;
-                    mutating_jobs_queue = false;
-                    unlock_process(process);
-                    return next_pid;
-                }
-                if (current != process->mmu_data)
-                    set_mmu(current);
             }
-
-            queue_enqueue(jobs_queue, &next_pid);
-            len--;
-            unlock_process(process);
+        } else if (process->state == PROCESS_STATE_BLOCK_LOCK) {
+            mmu_level_1_t* current = get_mmu();
+            if (current != process->mmu_data)
+                set_mmu(process->mmu_data);
+            if (lock_stop(process->lock_ref, process->lock_type, process->lock_value)) {
+                process->xs[REGISTER_A0] = 0;
+                mutating_jobs_queue = false;
+                unlock_process(process);
+                return next_pid;
+            }
+            if (current != process->mmu_data)
+                set_mmu(current);
         }
 
-        mutating_jobs_queue = false;
-        process_t* current = get_process(pid);
-        if (current->state == PROCESS_STATE_RUNNING) {
-            unlock_process(current);
-            return pid;
-        }
-
-        unlock_process(current);
+        queue_enqueue(jobs_queue, &next_pid);
+        len--;
+        unlock_process(process);
     }
+
+    mutating_jobs_queue = false;
+    process_t* current = get_process(pid);
+    if (current && current->state == PROCESS_STATE_RUNNING) {
+        unlock_process(current);
+        return pid;
+    }
+
+    unlock_process(current);
+    return (pid_t) -1;
 }
 
 static bool find_associated_dead_capability(void* data, void* _key, void* value) {
@@ -477,8 +479,10 @@ static bool find_associated_dead_capability(void* data, void* _key, void* value)
 void kill_process(pid_t pid) {
     LOCK_WRITE_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
-    if (process == NULL)
+    if (process == NULL) {
+        LOCK_RELEASE_PROCESSES();
         return;
+    }
 
     bool f = false;
     while (!atomic_compare_exchange_weak(&process->mutex_lock, &f, true)) {
@@ -487,6 +491,7 @@ void kill_process(pid_t pid) {
 
     if (process->state == PROCESS_STATE_DEAD) {
         process->mutex_lock = false;
+        LOCK_RELEASE_PROCESSES();
         return;
     }
 

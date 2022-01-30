@@ -8,6 +8,7 @@
 .global sbi_hart_start
 .global sbi_hart_stop
 .global sbi_hart_get_status
+.global sbi_hart_suspend
 
 # EIDs are stored in a7
 # FIDs are stored in a6
@@ -56,6 +57,14 @@ sbi_hart_stop:
 # Gets the current status of a hart.
 sbi_hart_get_status:
     li a6, 2
+    li a7, 0x48534d
+    ecall
+    ret
+
+# sbi_hart_suspend(uint32_t, unsigned long, unsigned long) -> struct sbiret
+# Suspends the current hart.
+sbi_hart_suspend:
+    li a6, 3
     li a7, 0x48534d
     ecall
     ret

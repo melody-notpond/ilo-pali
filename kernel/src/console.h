@@ -2,6 +2,11 @@
 #define KERNEL_CONSOLE_H
 
 #include <stdarg.h>
+#include <stddef.h>
+
+// console_write(char*, size_t) -> void
+// Writes the given substring to the UART.
+void console_write(char* s, size_t len);
 
 // console_puts(char*) -> void
 // Prints out a string onto the UART.

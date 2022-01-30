@@ -1,6 +1,7 @@
 #ifndef OPENSBI_H
 #define OPENSBI_H
 
+#include <stdint.h>
 enum {
 	SBIRET_ERROR_CODE_SUCCESS               =  0,
 	SBIRET_ERROR_CODE_FAILED                = -1,
@@ -28,9 +29,9 @@ int sbi_console_getchar();
 // Sets the timer value.
 struct sbiret sbi_set_timer(unsigned long long stime_value);
 
-// sbi_hart_start(unsigned long, unsigned long, unsigned long) -> struct sbiret
+// sbi_hart_start(unsigned long, void*, unsigned long) -> struct sbiret
 // Starts a hart at the given start address with the given opaque data.
-struct sbiret sbi_hart_start(unsigned long hartid, unsigned long start_addr, unsigned long opaque);
+struct sbiret sbi_hart_start(unsigned long hartid, void* start_addr, unsigned long opaque);
 
 // sbi_hart_stop(void) -> struct sbiret
 // Stops a hart.
@@ -39,6 +40,10 @@ struct sbiret sbi_hart_stop(void);
 // sbi_hart_get_status(unsigned long) -> struct sbiret
 // Gets the current status of a hart.
 struct sbiret sbi_hart_get_status(unsigned long hartid);
+
+// sbi_hart_suspend(uint32_t, unsigned long, unsigned long) -> struct sbiret
+// Suspends the current hart.
+struct sbiret sbi_hart_suspend(uint32_t suspend_type, unsigned long resume_addr, unsigned long opaque);
 
 #endif /* OPENSBI_H */
 

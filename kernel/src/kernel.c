@@ -11,16 +11,44 @@
 #include "opensbi.h"
 #include "process.h"
 
-trap_t trap = { 0 };
+#define MAX_TRAP_COUNT 64
+#define STACK_SIZE     0x8000
+
+trap_t traps[MAX_TRAP_COUNT];
+size_t cpu_count = 0;
+
+void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu, bool boot_hart) {
+    extern int stack_top;
+    trap_t* trap = &traps[hartid];
+    trap->hartid = hartid;
+    trap->interrupt_stack = (uint64_t) &stack_top - STACK_SIZE * hartid;
+    trap->pid = -1;
+
+    trap_t* t = trap;
+    asm volatile("csrw sscratch, %0": "=r" (t));
+
+    uint64_t sstatus;
+    asm volatile("csrr %0, sstatus" : "=r" (sstatus));
+    sstatus |= 1 << 18;
+    if (!boot_hart)
+        sstatus |= 1 << 8 | 1 << 5;
+    uint64_t s = sstatus;
+    asm volatile("csrw sstatus, %0" : "=r" (s));
+
+    uint64_t sie = 0x220;
+    asm volatile("csrw sie, %0" : "=r" (sie));
+
+    if (!boot_hart) {
+        extern void do_nothing();
+
+        set_mmu(mmu);
+        trap->pc = (uint64_t) do_nothing;
+        sbi_set_timer(0);
+        jump_out_of_trap(trap);
+    }
+}
 
 void kinit(uint64_t hartid, void* fdt) {
-    extern int stack_top;
-    trap.hartid = hartid;
-    trap.interrupt_stack = (uint64_t) &stack_top;
-
-    trap_t* current_trap = &trap;
-    asm volatile("csrw sscratch, %0" : "=r" (current_trap));
-
     console_printf("[kinit] toki, ale o!\n[kinit] hartid: %lx\n[kinit] fdt pointer: %p\n", hartid, fdt);
 
     fdt_t devicetree = verify_fdt(fdt);
@@ -30,6 +58,13 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     dump_fdt(&devicetree, NULL);
+
+    void* last = NULL;
+    while ((last = fdt_find(&devicetree, "cpu", last))) {
+        cpu_count++;
+    }
+
+    console_printf("[kinit] %lx cpus present\n", cpu_count);
 
     init_time(&devicetree);
     init_pages(&devicetree);
@@ -49,7 +84,7 @@ void kinit(uint64_t hartid, void* fdt) {
 
     console_printf("[kinit] initrd start: %p\n[kinit] initrd end: %p\n", initrd_start, initrd_end);
 
-    init_interrupts(&devicetree);
+    init_interrupts(hartid, &devicetree);
 
     fat16_fs_t fat = verify_initrd(initrd_start, initrd_end);
     if (fat.fat == NULL) {
@@ -79,22 +114,24 @@ void kinit(uint64_t hartid, void* fdt) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
 
+    init_hart_helper(hartid, initd->mmu_data, true);
     initd->xs[REGISTER_A0] = (uint64_t) fdt;
+    mmu_level_1_t* mmu = initd->mmu_data;
     unlock_process(initd);
 
-    uint64_t sstatus;
-    asm volatile("csrr %0, sstatus" : "=r" (sstatus));
-    sstatus |= 1 << 18;
-    asm volatile("csrw sstatus, %0" : "=r" (sstatus));
-
-    uint64_t sie = 0x220;
-    asm volatile("csrw sie, %0" : "=r" (sie));
-
     console_puts("[kinit] starting initd\n");
-    trap.pid = -1;
-    switch_to_process(&trap, 0);
+    switch_to_process(&traps[hartid], 0);
     sbi_set_timer(0);
-    jump_out_of_trap(&trap);
+
+    console_puts("[kinit] initialising harts\n");
+    extern void init_hart(uint64_t hartid, mmu_level_1_t* mmu);
+    for (size_t i = 0; i < cpu_count; i++) {
+        if (i != hartid) {
+            sbi_hart_start(i, init_hart, (uint64_t) mmu);
+        }
+    }
+
+    jump_out_of_trap(&traps[hartid]);
 
 	while(1);
 }

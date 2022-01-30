@@ -50,9 +50,13 @@ typedef struct {
     pid_t pid;
 } trap_t;
 
-// init_interrupts(fdt_t*) -> void
+// timer_switch(trap_t*) -> void
+// Switches to a new process, or suspends the hart if no process is available.
+void timer_switch(trap_t* trap);
+
+// init_interrupts(uint64_t, fdt_t*) -> void
 // Inits interrupts.
-void init_interrupts(fdt_t* fdt);
+void init_interrupts(uint64_t hartid, fdt_t* fdt);
 
 // lock_stop(void*, int, uint64_t) -> bool
 // Returns true if the lock should stop blocking.

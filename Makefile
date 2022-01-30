@@ -2,10 +2,11 @@ TARGET = riscv64-unknown-elf
 CC     = $(TARGET)-gcc
 GDB    = $(TARGET)-gdb
 EMU    = qemu-system-riscv64
+CORES  = 4
 
 CODE = src/
 
-EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -device virtio-blk-device,scsi=off,drive=root -s
+EFLAGS = -machine virt -cpu rv64 -bios opensbi-riscv64-generic-fw_dynamic.bin -device virtio-gpu-device -m 256m -global virtio-mmio.force-legacy=false -device virtio-blk-device,scsi=off,drive=root -smp $(CORES) -s
 ifdef WAIT_GDB
 	EFLAGS += -S
 endif

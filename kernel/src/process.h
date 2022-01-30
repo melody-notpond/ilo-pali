@@ -92,7 +92,7 @@ void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb);
 void switch_to_process(trap_t* trap, pid_t pid);
 
 // get_next_waiting_process(pid_t) -> pid_t
-// Searches for the next waiting process. Returns the given pid if not found.
+// Searches for the next waiting process. Returns -1 if not found.
 pid_t get_next_waiting_process(pid_t pid);
 
 // kill_process(pid_t) -> void

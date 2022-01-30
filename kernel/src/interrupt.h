@@ -41,12 +41,13 @@
 typedef uint64_t pid_t;
 
 typedef struct {
-    uint64_t hartid;
-    pid_t pid;
+    uint64_t xs[32];
     uint64_t pc;
     uint64_t interrupt_stack;
-    uint64_t xs[32];
     double fs[32];
+
+    uint64_t hartid;
+    pid_t pid;
 } trap_t;
 
 // init_interrupts(fdt_t*) -> void

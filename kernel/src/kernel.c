@@ -68,7 +68,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    spawn_process_from_elf("initd", 5, 0, &elf, 2, NULL, 0);
+    process_t* initd = spawn_process_from_elf("initd", 5, 0, &elf, 2, NULL, 0);
     free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
@@ -79,8 +79,8 @@ void kinit(uint64_t hartid, void* fdt) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
 
-    process_t* initd = get_process(0);
     initd->xs[REGISTER_A0] = (uint64_t) fdt;
+    unlock_process(initd);
 
     uint64_t sstatus;
     asm volatile("csrr %0, sstatus" : "=r" (sstatus));

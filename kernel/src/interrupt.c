@@ -161,6 +161,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
                             trap->xs[REGISTER_A0] = 0;
+                            unlock_process(process);
                             break;
                         }
 
@@ -185,12 +186,18 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     dealloc_pages(mmu_remove(process->mmu_data, addr + j * PAGE_SIZE), 1);
                                 }
 
+                                if (process != page_holder)
+                                    unlock_process(page_holder);
+                                unlock_process(process);
                                 return trap;
                             }
 
                             page_holder->last_virtual_page += PAGE_SIZE;
                         }
                         trap->xs[REGISTER_A0] = (uint64_t) addr;
+                        if (process != page_holder)
+                            unlock_process(page_holder);
+                        unlock_process(process);
                         break;
                     }
 
@@ -227,12 +234,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 mmu_change_flags(process->mmu_data, addr + i * PAGE_SIZE, flags | MMU_BIT_USER);
                             } else {
                                 trap->xs[REGISTER_A0] = 1;
+                                unlock_process(process);
                                 return trap;
                             }
                         }
 
                         trap->xs[REGISTER_A0] = 0;
                         clean_mmu_table(process->mmu_data);
+                        unlock_process(process);
                         flush_mmu();
                         break;
                     }
@@ -250,11 +259,13 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 dealloc_pages(physical, 1);
                             } else {
                                 trap->xs[REGISTER_A0] = 1;
+                                unlock_process(process);
                                 return trap;
                             }
                         }
 
                         trap->xs[REGISTER_A0] = 0;
+                        unlock_process(process);
                         break;
                     }
 
@@ -273,6 +284,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             trap->xs[REGISTER_A0] = process->user;
                         else
                             trap->xs[REGISTER_A0] = -1;
+                        unlock_process(process);
                         break;
                     }
 
@@ -286,14 +298,17 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (current->user != 0) {
                             trap->xs[REGISTER_A0] = 2;
+                            unlock_process(current);
                             break;
                         }
 
+                        unlock_process(current);
                         process_t* process = get_process(pid);
                         if (process) {
                             process->user = uid;
                             trap->xs[REGISTER_A0] = 0;
                         } else trap->xs[REGISTER_A0] = 1;
+                        unlock_process(process);
                         break;
                     }
 
@@ -316,6 +331,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         process_t* process = get_process(trap->pid);
                         process->wake_on_time = now;
                         process->state = PROCESS_STATE_BLOCK_SLEEP;
+                        unlock_process(process);
 
                         timer_switch(trap);
                         break;
@@ -342,16 +358,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        pid_t pid = spawn_process_from_elf(name, name_size, trap->pid, &elf, 2, args, args_size);
-
-                        if (capability != NULL && pid != (pid_t) -1) {
-                            capability_t b;
-                            create_capability(capability, trap->pid, &b, pid);
-                            get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
-                            get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
+                        process_t* child = spawn_process_from_elf(name, name_size, trap->pid, &elf, 2, args, args_size);
+                        if (child == NULL) {
+                            trap->xs[REGISTER_A0] = -1;
+                            break;
                         }
 
-                        trap->xs[REGISTER_A0] = pid;
+                        if (capability != NULL && child != NULL) {
+                            capability_t b;
+                            create_capability(capability, trap->pid, &b, child->pid);
+                            child->xs[REGISTER_A2] = (uint64_t) (b >> 64);
+                            child->xs[REGISTER_A3] = (uint64_t) b;
+                        }
+
+                        trap->xs[REGISTER_A0] = child->pid;
+                        unlock_process(child);
                         break;
                     }
 
@@ -361,18 +382,25 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         pid_t pid = trap->xs[REGISTER_A1];
 
                         process_t* current = get_process(trap->pid);
-                        process_t* victim = get_process(pid);
+                        process_t* victim = trap->pid == pid ? current : get_process(pid);
 
                         if (victim == NULL) {
                             trap->xs[REGISTER_A0] = 1;
+                            unlock_process(current);
                             break;
                         }
 
                         if (pid == 0 || (current->user != 0 && victim->user != current->user)) {
                             trap->xs[REGISTER_A0] = 2;
+                            if (current != victim)
+                                unlock_process(victim);
+                            unlock_process(current);
                             break;
                         }
 
+                        if (current != victim)
+                            unlock_process(victim);
+                        unlock_process(current);
                         kill_process(pid);
                         if (trap->pid == pid) {
                             timer_switch(trap);
@@ -524,27 +552,34 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                         memcpy(page_holder->last_virtual_page, message_data, message.metadata);
                                         *data = (uint64_t) page_holder->last_virtual_page;
                                         page_holder->last_virtual_page += PAGE_SIZE;
+                                        if (process != page_holder)
+                                            unlock_process(page_holder);
+                                        unlock_process(process);
                                     }
                                     free(message_data);
 
                                 // Pointer
                                 } else if (message.type == 2) {
-                                    process_t* process = get_process(trap->pid);
+                                    if (data != NULL) {
+                                        process_t* process = get_process(trap->pid);
 
-                                    mmu_level_1_t* current = process->mmu_data;
-                                    process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
-                                    uint64_t* pages = (uint64_t*) message.data;
-                                    for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
-                                        if (pages[i] & MMU_BIT_USER) {
-                                            void* physical = MMU_UNWRAP(4, pages[i]);
-                                            mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (pages[i] & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
+                                        mmu_level_1_t* current = process->mmu_data;
+                                        process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
+                                        uint64_t* pages = (uint64_t*) message.data;
+                                        for (size_t i = 0; i < (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE; i++) {
+                                            if (pages[i] & MMU_BIT_USER) {
+                                                void* physical = MMU_UNWRAP(4, pages[i]);
+                                                mmu_map(current, page_holder->last_virtual_page + i * PAGE_SIZE, physical, (pages[i] & (MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_EXECUTE)) | MMU_BIT_USER);
+                                            }
                                         }
-                                    }
 
-                                    free(pages);
-                                    if (data != NULL)
                                         *data = (uint64_t) page_holder->last_virtual_page;
-                                    page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                                        page_holder->last_virtual_page += (message.metadata + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE;
+                                        if (process != page_holder)
+                                            unlock_process(page_holder);
+                                        unlock_process(process);
+                                    }
+                                    free((void*) message.data);
                                 } else if (message.type != 0 && message.type != 1 && message.type != 4)
                                     console_printf("[interrupt_handler] warning: unknown message type 0x%lx\n", message.type);
                                 break;
@@ -594,6 +629,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             process->lock_ref = ref;
                             process->lock_type = type;
                             process->lock_value = value;
+                            unlock_process(process);
                             timer_switch(trap);
                         }
 
@@ -607,16 +643,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         void* data = (void*) trap->xs[REGISTER_A2];
                         size_t size = trap->xs[REGISTER_A3];
                         capability_t* capability = (void*) trap->xs[REGISTER_A4];
-                        pid_t pid = spawn_thread_from_func(trap->pid, func, 2, data, size);
-
-                        if (capability != NULL && pid != (pid_t) -1) {
-                            capability_t b;
-                            create_capability(capability, trap->pid, &b, pid);
-                            get_process(pid)->xs[REGISTER_A2] = (uint64_t) (b >> 64);
-                            get_process(pid)->xs[REGISTER_A3] = (uint64_t) b;
+                        process_t* child = spawn_thread_from_func(trap->pid, func, 2, data, size);
+                        if (child == NULL) {
+                            trap->xs[REGISTER_A0] = -1;
+                            break;
                         }
 
-                        trap->xs[REGISTER_A0] = pid;
+                        if (capability != NULL && child != NULL) {
+                            capability_t b;
+                            create_capability(capability, trap->pid, &b, child->pid);
+                            child->xs[REGISTER_A2] = (uint64_t) (b >> 64);
+                            child->xs[REGISTER_A3] = (uint64_t) b;
+                        }
+
+                        trap->xs[REGISTER_A0] = child->pid;
+                        unlock_process(child);
                         break;
                     }
 
@@ -649,10 +690,12 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (cap == NULL && process->thread_source != 0 && trap->pid != 0) {
                             trap->xs[REGISTER_A0] = 0;
                             trap->xs[REGISTER_A1] = 0;
+                            unlock_process(process);
                             break;
                         }
 
-                        if (!capability_connects_to_initd(*cap) && process->thread_source != 0 && trap->pid != 0) {
+                        if (process->thread_source != 0 && trap->pid != 0 && !capability_connects_to_initd(*cap, trap->pid)) {
+                            unlock_process(process);
                             kill_process(trap->pid);
                             timer_switch(trap);
                             return trap;
@@ -663,6 +706,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
                             trap->xs[REGISTER_A0] = 0;
                             trap->xs[REGISTER_A1] = 0;
+                            unlock_process(process);
                             break;
                         }
 
@@ -676,6 +720,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (addr == NULL) {
                             void* physical = alloc_pages(count);
                             if (physical == 0) {
+                                unlock_process(process);
                                 trap->xs[REGISTER_A0] = 0;
                                 trap->xs[REGISTER_A1] = 0;
                                 break;
@@ -689,6 +734,9 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page; 
                             trap->xs[REGISTER_A1] = (uint64_t) physical;
                             page_holder->last_virtual_page += PAGE_SIZE * count;
+
+                            if (page_holder != process)
+                                unlock_process(page_holder);
                         } else {
                             if (addr + count * PAGE_SIZE < get_memory_start()) {
                                 process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);
@@ -698,8 +746,12 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 trap->xs[REGISTER_A0] = (uint64_t) page_holder->last_virtual_page;
                                 trap->xs[REGISTER_A1] = (uint64_t) addr / PAGE_SIZE * PAGE_SIZE;
                                 page_holder->last_virtual_page += PAGE_SIZE * count;
+
+                                if (page_holder != process)
+                                    unlock_process(page_holder);
                             } else trap->xs[REGISTER_A0] = 0;
                         }
+                        unlock_process(process);
                         break;
                     }
 

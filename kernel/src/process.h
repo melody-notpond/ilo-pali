@@ -1,6 +1,7 @@
 #ifndef PROCESS_H
 #define PROCESS_H
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -33,9 +34,9 @@ typedef enum {
 
 typedef struct {
     char* name;
-
     pid_t pid;
     pid_t thread_source;
+    atomic_bool mutex_lock;
 
     uid_t user;
 
@@ -66,13 +67,21 @@ typedef struct {
 // Initialises process related stuff.
 void init_processes();
 
-// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> pid_t
-// Spawns a process using the given elf file and parent pid. Returns -1 on failure.
-pid_t spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+// get_process(pid_t) -> process_t*
+// Gets the process associated with the pid.
+process_t* get_process(pid_t pid);
 
-// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> pid_t
-// Spawns a thread from the given process. Returns -1 on failure.
-pid_t spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
+// unlock_process(process_t*) -> void
+// Unlocks the mutex associated with the process and frees a process hashmap reader.
+void unlock_process(process_t* process);
+
+// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> process_t*
+// Spawns a process using the given elf file and parent pid. Returns NULL on failure.
+process_t* spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+
+// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> process_t*
+// Spawns a thread from the given process. Returns NULL on failure.
+process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
 
 // create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
@@ -85,10 +94,6 @@ void switch_to_process(trap_t* trap, pid_t pid);
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns the given pid if not found.
 pid_t get_next_waiting_process(pid_t pid);
-
-// get_process(pid_t) -> process_t*
-// Gets the process associated with the pid.
-process_t* get_process(pid_t pid);
 
 // kill_process(pid_t) -> void
 // Kills a process.
@@ -114,8 +119,8 @@ int enqueue_interrupt_to_channel(capability_t capability, uint32_t id);
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message);
 
-// capability_connects_to_initd(capability_t) -> bool
+// capability_connects_to_initd(capability_t, pid_t) -> bool
 // Returns true if the capability connects to initd or one of its threads.
-bool capability_connects_to_initd(capability_t capability);
+bool capability_connects_to_initd(capability_t capability, pid_t pid);
 
 #endif /* PROCESS_H */

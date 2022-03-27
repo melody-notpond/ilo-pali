@@ -75,6 +75,9 @@ static inline void LOCK_RELEASE_PROCESSES() {
 // get_process(pid_t) -> process_t*
 // Gets the process associated with the pid.
 process_t* get_process(pid_t pid) {
+    uint64_t ra;
+    asm volatile("mv %0, ra" : "=r" (ra));
+
     LOCK_READ_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
     if (process == NULL) {

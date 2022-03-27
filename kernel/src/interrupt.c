@@ -30,8 +30,15 @@ void timer_switch(trap_t* trap) {
     time_t next = get_time();
     next.micros += 10;
     set_next_time_interrupt(next);
-    if (next_pid == (pid_t) -1)
+    if (next_pid == (pid_t) -1) {
         sbi_hart_suspend(0, (unsigned long) hart_suspend_resume, (unsigned long) trap);
+    } else {
+        uint64_t sstatus;
+        asm volatile("csrr %0, sstatus" : "=r" (sstatus));
+        sstatus &= ~(1 << 8 | 1 << 5);
+        uint64_t s = sstatus;
+        asm volatile("csrw sstatus, %0" : "=r" (s));
+    }
 }
 
 bool lock_equals(void* ref, int type, uint64_t value) {
@@ -147,7 +154,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Store access fault
             case 7:
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap pid: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid);
                 while(1);
 
             // Environment call (ie, syscall)
@@ -842,7 +849,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Invalid or handled by machine mode
             default:
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap pid: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid);
                 while(1);
         }
     }

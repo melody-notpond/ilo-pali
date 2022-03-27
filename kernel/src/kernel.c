@@ -119,10 +119,6 @@ void kinit(uint64_t hartid, void* fdt) {
     mmu_level_1_t* mmu = initd->mmu_data;
     unlock_process(initd);
 
-    console_puts("[kinit] starting initd\n");
-    switch_to_process(&traps[hartid], 0);
-    sbi_set_timer(0);
-
     console_puts("[kinit] initialising harts\n");
     extern void init_hart(uint64_t hartid, mmu_level_1_t* mmu);
     for (size_t i = 0; i < cpu_count; i++) {
@@ -130,6 +126,10 @@ void kinit(uint64_t hartid, void* fdt) {
             sbi_hart_start(i, init_hart, (uint64_t) mmu);
         }
     }
+
+    console_puts("[kinit] starting initd\n");
+    switch_to_process(&traps[hartid], 0);
+    sbi_set_timer(0);
 
     jump_out_of_trap(&traps[hartid]);
 

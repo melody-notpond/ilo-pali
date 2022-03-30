@@ -12,14 +12,10 @@ atomic_uint_fast64_t processes_lock = 0;
 queue_t* jobs_queue;
 atomic_bool mutating_jobs_queue = false;
 
-hashmap_t* capabilities;
-atomic_bool mutating_capabilities = false;
-
 // init_processes() -> void
 // Initialises process related stuff.
 void init_processes() {
     processes = create_hashmap(sizeof(pid_t), sizeof(process_t));
-    capabilities = create_hashmap(sizeof(capability_t), sizeof(process_channel_t));
     jobs_queue = create_queue(sizeof(pid_t));
 }
 
@@ -102,9 +98,9 @@ void unlock_process(process_t* process) {
     LOCK_RELEASE_PROCESSES();
 }
 
-// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> process_t*
-// Spawns a process using the given elf file and parent pid. Returns NULL on failure.
-process_t* spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
+// spawn_process_from_elf(char*, size_t, elf_t*, size_t, void*, size_t) -> process_t*
+// Spawns a process using the given elf file. Returns NULL on failure.
+process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
     if (elf->header->type != ELF_EXECUTABLE) {
         console_puts("ELF file is not executable\n");
         return NULL;
@@ -199,17 +195,8 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid
         process.last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE + PAGE_SIZE;
     }
 
-    process_t* parent = hashmap_get(processes, &parent_pid);
-    if (parent != NULL) {
-        bool f = false;
-        while (!atomic_compare_exchange_weak(&parent->mutex_lock, &f, true)) {
-            f = false;
-        }
-
-        process.user = parent->user;
-
-        parent->mutex_lock = false;
-    } else process.user = 0;
+    if (name_size > PROCESS_NAME_SIZE)
+        name_size = PROCESS_NAME_SIZE;
 
     process.name = malloc(name_size + 1);
     memcpy(process.name, name, name_size);
@@ -219,6 +206,9 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid
     process.mmu_data = top;
     process.pc = elf->header->entry;
     process.state = PROCESS_STATE_WAIT;
+    process.channels = NULL;
+    process.channels_len = 0;
+    process.channels_cap = 0;
     hashmap_insert(processes, &pid, &process);
     process_t* process_ptr = hashmap_get(processes, &pid);
     process_ptr->mutex_lock = true;
@@ -274,7 +264,6 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     process_t process;
     process.mmu_data = parent->mmu_data;
     process.thread_source = parent->pid;
-    process.user = parent->user;
 
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(parent->mmu_data, parent->last_virtual_page + PAGE_SIZE * i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
@@ -295,6 +284,9 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     process.pid = pid;
     process.pc = (uint64_t) func;
     process.state = PROCESS_STATE_WAIT;
+    process.channels = NULL;
+    process.channels_len = 0;
+    process.channels_cap = 0;
     hashmap_insert(processes, &pid, &process);
     parent->mutex_lock = false;
     process_t* process_ptr = hashmap_get(processes, &pid);
@@ -315,42 +307,58 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
 // create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
 void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
+    if (pa == pb)
+        return;
+
+    process_channel_t* ca = malloc(sizeof(process_channel_t));
+    ca->start = 0;
+    ca->end = 0;
+    ca->len = 0;
+    ca->can_kill_receiver = false;
+    ca->recipient_pid = pb;
+
+    process_t* process_a = get_process(pa);
+    if (process_a->channels_len >= process_a->channels_cap) {
+        if (process_a->channels_cap == 0) {
+            process_a->channels_cap = 8;
+        } else {
+            process_a->channels_cap <<= 1;
+        }
+        process_a->channels = realloc(process_a->channels, process_a->channels_cap * sizeof(process_channel_t*));
     }
 
-    *a = 0;
-    *b = 0;
-    do {
-        // TODO: cryptographically secure random function
-        *a += 1;
-    } while (hashmap_get(capabilities, a) != NULL);
+    process_a->channels[process_a->channels_len] = ca;
+    *a = process_a->channels_len;
+    process_a->channels_len++;
 
-    hashmap_insert(capabilities, a, &(process_channel_t) {
-        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
-        .start = 0,
-        .end = 0,
-        .len = 0,
-        .receiver = pa,
-    });
+    process_channel_t* cb = malloc(sizeof(process_channel_t));
+    cb->start = 0;
+    cb->end = 0;
+    cb->len = 0;
+    cb->can_kill_receiver = false;
+    cb->recipient_pid = pa;
 
-    do {
-        // TODO: cryptographically secure random function
-        *b += 1;
-    } while (hashmap_get(capabilities, b) != NULL);
+    process_t* process_b = get_process(pb);
+    if (process_b->channels_len >= process_b->channels_cap) {
+        if (process_b->channels_cap == 0) {
+            process_b->channels_cap = 8;
+        } else {
+            process_b->channels_cap <<= 1;
+        }
+        process_b->channels = realloc(process_b->channels, process_b->channels_cap * sizeof(process_channel_t*));
+    }
 
-    hashmap_insert(capabilities, b, &(process_channel_t) {
-        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
-        .start = 0,
-        .end = 0,
-        .len = 0,
-        .sender = *a,
-        .receiver = pb,
-    });
+    process_b->channels[process_b->channels_len] = cb;
+    *b = process_b->channels_len;
+    process_b->channels_len++;
 
-    ((process_channel_t*) hashmap_get(capabilities, a))->sender = *b;
-    mutating_capabilities = false;
+    ca->recipient_channel = *b;
+    cb->recipient_channel = *a;
+    ca->recipient = cb;
+    cb->recipient = ca;
+
+    unlock_process(process_a);
+    unlock_process(process_b);
 }
 
 // switch_to_process(trap_t*, pid_t) -> void
@@ -471,12 +479,6 @@ pid_t get_next_waiting_process(pid_t pid) {
     return (pid_t) -1;
 }
 
-static bool find_associated_dead_capability(void* data, void* _key, void* value) {
-    process_channel_t* channel = value;
-    pid_t pid = (pid_t) data;
-    return channel->receiver == pid;
-}
-
 // kill_process(pid_t) -> void
 // Kills a process.
 void kill_process(pid_t pid) {
@@ -498,22 +500,13 @@ void kill_process(pid_t pid) {
         return;
     }
 
-    size_t i = 0, j = 0;
-    f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
+    for (capability_t i = 0; i < process->channels_len; i++) {
+        process_channel_t* channel = process->channels[i];
+        if (channel->recipient)
+            channel->recipient->recipient = NULL;
+        free(channel);
     }
-
-    process_channel_t* channel;
-    while ((channel = hashmap_find(capabilities, (void*) pid, find_associated_dead_capability, &i, &j))) {
-        free(channel->message_queue);
-        channel->message_queue = NULL;
-        channel->start = 0;
-        channel->end = 0;
-        channel->len = 0;
-        channel->receiver = 0;
-    }
-    mutating_capabilities = false;
+    free(process->channels);
 
     pid_t initd = 0;
     if (process->mmu_data == get_mmu())
@@ -526,109 +519,75 @@ void kill_process(pid_t pid) {
     LOCK_RELEASE_PROCESSES();
 }
 
-// transfer_capability(capability_t, pid_t, pid_t) -> int
-// Transfers the given capability to a new process. Returns 0 if successful, 1 if the capability is invalid, and 2 if the new owner doesn't exist.
-int transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
+// transfer_capability(capability_t, pid_t, pid_t) -> capability_t
+// Transfers the given capability to a new process. Returns the capability if successful and -1 if not.
+capability_t transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner) {
+    if (old_owner == new_owner)
+        return -1;
 
-    process_channel_t* channel = hashmap_get(capabilities, &capability);
+    process_t* process = get_process(old_owner);
+    process_t* new = get_process(new_owner);
 
-    if (channel == NULL || channel->message_queue == NULL || channel->receiver != old_owner) {
-        mutating_capabilities = false;
-        return 1;
-    }
-    process_t* process = get_process(new_owner);
-    if (process == NULL) {
-        mutating_capabilities = false;
-        return 2;
-    }
-    process_t* current = get_process(old_owner);
-    if ((process->pid == 0 || new_owner == 0 || process->thread_source == 0) && current->thread_source != 0 && current->pid != 0) {
-        mutating_capabilities = false;
-        unlock_process(current);
+    if (process == NULL || process->channels_len <= capability || new == NULL) {
         unlock_process(process);
-        return 1;
+        unlock_process(new);
+        return -1;
     }
-    channel->receiver = new_owner;
-    mutating_capabilities = false;
-    unlock_process(current);
+    process_channel_t* channel = process->channels[capability];
+    process->channels[capability] = NULL;
+
+    if (channel == NULL || channel->recipient == NULL)
+        return -1;
+
+    if (new->channels_len >= new->channels_cap) {
+        if (new->channels_cap == 0) {
+            new->channels_cap = 8;
+        } else {
+            new->channels_cap <<= 1;
+        }
+        new->channels = realloc(new->channels, new->channels_cap * sizeof(process_channel_t*));
+    }
+
+    new->channels[new->channels_len] = channel;
+    capability_t cap = new->channels_len;
+    new->channels_len++;
+
+    channel->recipient->recipient_pid = new_owner;
+    channel->recipient->recipient_channel = cap;
+
     unlock_process(process);
-    return 0;
+    unlock_process(new);
+    return cap;
 }
 
 // clone_capability(pid_t, capability_t, capability_t*) -> int
 // Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
 int clone_capability(pid_t pid, capability_t original, capability_t* new) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
+    // TODO
+}
 
-    process_channel_t* channel = hashmap_get(capabilities, &original);
-    if (channel == NULL) {
-        mutating_capabilities = false;
-        return 1;
-    }
-
-    process_t* receiver = get_process(channel->receiver);
+// enqueue_message_to_channel(capability_t, pid_t, process_message_t) -> int
+// Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
+int enqueue_message_to_channel(capability_t capability, pid_t pid, process_message_t message) {
     process_t* process = get_process(pid);
-    if (receiver->pid != process->pid && receiver->pid != process->thread_source && receiver->thread_source != process->pid && receiver->thread_source != process->thread_source) {
-        mutating_capabilities = false;
-        unlock_process(receiver);
+    if (process == NULL || process->channels_len <= capability) {
         unlock_process(process);
         return 1;
     }
 
-    *new = 0;
-    do {
-        // TODO: cryptographically secure random function
-        *new += 1;
-    } while (hashmap_get(capabilities, new) != NULL);
+    process_channel_t* channel = process->channels[capability];
 
-    hashmap_insert(capabilities, new, &(process_channel_t) {
-        .message_queue = malloc(sizeof(process_message_t) * PROCESS_MESSAGE_QUEUE_SIZE),
-        .start = 0,
-        .end = 0,
-        .len = 0,
-        .sender = original,
-        .receiver = pid,
-    });
-
-    mutating_capabilities = false;
-    unlock_process(receiver);
-    unlock_process(process);
-    return 0;
-}
-
-// enqueue_message_to_channel(capability_t, process_message_t) -> int
-// Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
-int enqueue_message_to_channel(capability_t capability, process_message_t message) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
-
-    process_channel_t* sender_channel = hashmap_get(capabilities, &capability);
-    if (sender_channel == NULL) {
-        mutating_capabilities = false;
-        return 1;
-    }
-    process_channel_t* channel = hashmap_get(capabilities, &sender_channel->sender);
-    if (channel == NULL) {
-        mutating_capabilities = false;
-        return 1;
-    }
-
-    if (channel->message_queue == NULL) {
-        mutating_capabilities = false;
+    if (channel == NULL || channel->recipient == NULL) {
+        unlock_process(process);
         return 3;
     }
 
+    process_t* receiver = get_process(channel->recipient_pid);
+    channel = receiver->channels[channel->recipient_channel];
+
     if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE) {
-        mutating_capabilities = false;
+        unlock_process(receiver);
+        unlock_process(process);
         return 2;
     }
 
@@ -636,31 +595,30 @@ int enqueue_message_to_channel(capability_t capability, process_message_t messag
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->end = 0;
     channel->len++;
-    mutating_capabilities = false;
+
+    unlock_process(receiver);
+    unlock_process(process);
     return 0;
 }
 
-// enqueue_interrupt_to_channel(capability_t, uint32_t) -> int
+// enqueue_interrupt_to_channel(capability_t, pid_t, uint32_t) -> int
 // Enqueues an interrupt to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
-int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
-
-    process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL) {
-        mutating_capabilities = false;
+int enqueue_interrupt_to_channel(capability_t capability, pid_t pid, uint32_t id) {
+    process_t* process = get_process(pid);
+    if (process == NULL || process->channels_len <= capability) {
+        unlock_process(process);
         return 1;
     }
 
-    if (channel->message_queue == NULL) {
-        mutating_capabilities = false;
+    process_channel_t* channel = process->channels[capability];
+
+    if (channel == NULL || channel->recipient == NULL) {
+        unlock_process(process);
         return 3;
     }
 
     if (channel->len >= PROCESS_MESSAGE_QUEUE_SIZE) {
-        mutating_capabilities = false;
+        unlock_process(process);
         return 2;
     }
 
@@ -673,31 +631,28 @@ int enqueue_interrupt_to_channel(capability_t capability, uint32_t id) {
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->end = 0;
     channel->len++;
-    mutating_capabilities = false;
+    unlock_process(process);
     return 0;
 }
 
 // dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.
 int dequeue_message_from_channel(pid_t pid, capability_t capability, process_message_t* message) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
-
-    process_channel_t* channel = hashmap_get(capabilities, &capability);
-    if (channel == NULL || channel->receiver != pid) {
-        mutating_capabilities = false;
+    process_t* process = get_process(pid);
+    if (process == NULL || process->channels_len <= capability) {
+        unlock_process(process);
         return 1;
     }
 
-    if (channel->message_queue == NULL) {
-        mutating_capabilities = false;
+    process_channel_t* channel = process->channels[capability];
+    if (channel == NULL)
         return 3;
-    }
 
     if (channel->len == 0) {
-        mutating_capabilities = false;
+        unlock_process(process);
+
+        if (channel->recipient == NULL)
+            return 3;
         return 2;
     }
 
@@ -705,53 +660,52 @@ int dequeue_message_from_channel(pid_t pid, capability_t capability, process_mes
     if (channel->start >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->start = 0;
     channel->len--;
-    mutating_capabilities = false;
+
+    unlock_process(process);
     return 0;
 }
 
 // capability_connects_to_initd(capability_t, pid_t) -> bool
 // Returns true if the capability connects to initd or one of its threads.
 bool capability_connects_to_initd(capability_t capability, pid_t pid) {
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_capabilities, &f, true)) {
-        f = false;
-    }
+    if (pid == 0)
+        return true;
 
-    process_channel_t* channel = hashmap_get(capabilities, &capability);
-    process_channel_t* sender = hashmap_get(capabilities, &channel->sender);
-    if (channel == NULL || sender == NULL || channel->message_queue == NULL || sender->message_queue == NULL) {
-        mutating_capabilities = false;
+    process_t* process = get_process(pid);
+    if (process == NULL || process->channels_len <= capability) {
+        unlock_process(process);
         return false;
     }
-    if (channel->receiver == 0 || sender->receiver == 0) {
-        mutating_capabilities = false;
+
+    if (process->thread_source == 0) {
+        unlock_process(process);
         return true;
     }
 
-    if (channel->receiver != pid) {
-        process_t* receiver = get_process(channel->receiver);
-        if (receiver == NULL) {
-            mutating_capabilities = false;
-            return false;
-        }
-        if (receiver->thread_source == 0) {
-            mutating_capabilities = false;
-            return true;
-        }
-        unlock_process(receiver);
+    process_channel_t* channel = process->channels[capability];
+    if (channel == NULL || channel->recipient == NULL) {
+        unlock_process(process);
+        return false;
     }
 
-    if (sender->receiver != pid) {
-        process_t* receiver = get_process(sender->receiver);
-        if (receiver == NULL) {
-            mutating_capabilities = false;
-            return false;
-        }
-        bool result = receiver->thread_source == 0;
-        unlock_process(receiver);
-        mutating_capabilities = false;
-        return result;
+    if (channel->recipient_pid == 0) {
+        unlock_process(process);
+        return true;
     }
 
+    process_t* receiver = get_process(channel->recipient_pid);
+    if (receiver == NULL) {
+        unlock_process(process);
+        return false;
+    }
+
+    if (receiver->thread_source == 0) {
+        unlock_process(receiver);
+        unlock_process(process);
+        return true;
+    }
+
+    unlock_process(receiver);
+    unlock_process(process);
     return false;
 }

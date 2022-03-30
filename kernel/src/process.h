@@ -13,9 +13,8 @@
 #define PROCESS_MESSAGE_QUEUE_SIZE  128
 #define PROCESS_NAME_SIZE           255
 
-typedef __uint128_t capability_t;
+typedef uint64_t capability_t;
 typedef uint64_t pid_t;
-typedef uint64_t uid_t;
 
 typedef struct {
     pid_t source;
@@ -23,6 +22,17 @@ typedef struct {
     uint64_t data;
     uint64_t metadata;
 } process_message_t;
+
+typedef struct s_process_channel {
+    size_t start;
+    size_t end;
+    size_t len;
+    pid_t recipient_pid;
+    capability_t recipient_channel;
+    struct s_process_channel* recipient;
+    bool can_kill_receiver;
+    process_message_t message_queue[PROCESS_MESSAGE_QUEUE_SIZE];
+} process_channel_t;
 
 typedef enum {
     PROCESS_STATE_DEAD = 0,
@@ -38,8 +48,6 @@ typedef struct {
     pid_t thread_source;
     atomic_bool mutex_lock;
 
-    uid_t user;
-
     process_state_t state;
     mmu_level_1_t* mmu_data;
     time_t wake_on_time;
@@ -47,21 +55,16 @@ typedef struct {
     uint64_t lock_value;
     int lock_type;
 
+    process_channel_t** channels;
+    size_t channels_len;
+    size_t channels_cap;
+
     void* last_virtual_page;
 
     uint64_t pc;
     uint64_t xs[32];
     double fs[32];
 } process_t;
-
-typedef struct {
-    process_message_t* message_queue;
-    size_t start;
-    size_t end;
-    size_t len;
-    capability_t sender;
-    pid_t receiver;
-} process_channel_t;
 
 // init_processes() -> void
 // Initialises process related stuff.
@@ -75,9 +78,9 @@ process_t* get_process(pid_t pid);
 // Unlocks the mutex associated with the process and frees a process hashmap reader.
 void unlock_process(process_t* process);
 
-// spawn_process_from_elf(char*, size_t, pid_t, elf_t*, size_t, void*, size_t) -> process_t*
-// Spawns a process using the given elf file and parent pid. Returns NULL on failure.
-process_t* spawn_process_from_elf(char* name, size_t name_size, pid_t parent_pid, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+// spawn_process_from_elf(char*, size_t, elf_t*, size_t, void*, size_t) -> process_t*
+// Spawns a process using the given elf file. Returns NULL on failure.
+process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
 
 // spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> process_t*
 // Spawns a thread from the given process. Returns NULL on failure.
@@ -99,21 +102,21 @@ pid_t get_next_waiting_process(pid_t pid);
 // Kills a process.
 void kill_process(pid_t pid);
 
-// transfer_capability(capability_t, pid_t, pid_t) -> int
-// Transfers the given capability to a new process. Returns 0 if successful, 1 if the capability is invalid, and 2 if the new owner doesn't exist.
-int transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner);
+// transfer_capability(capability_t, pid_t, pid_t) -> capability_t
+// Transfers the given capability to a new process. Returns the capability if successful and -1 if not.
+capability_t transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner);
 
 // clone_capability(pid_t, capability_t, capability_t*) -> int
 // Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
 int clone_capability(pid_t pid, capability_t original, capability_t* new);
 
-// enqueue_message_to_channel(capability_t, process_message_t) -> int
+// enqueue_message_to_channel(capability_t, pid_t, process_message_t) -> int
 // Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
-int enqueue_message_to_channel(capability_t capability, process_message_t message);
+int enqueue_message_to_channel(capability_t capability, pid_t pid, process_message_t message);
 
-// enqueue_interrupt_to_channel(capability_t, uint32_t) -> int
+// enqueue_interrupt_to_channel(capability_t, pid_t, uint32_t) -> int
 // Enqueues an interrupt to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.
-int enqueue_interrupt_to_channel(capability_t capability, uint32_t id);
+int enqueue_interrupt_to_channel(capability_t capability, pid_t pid, uint32_t id);
 
 // dequeue_message_from_channel(pid_t, capability_t, process_message_t*) -> int
 // Dequeues a message from a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is empty, and 3 if the channel has closed.

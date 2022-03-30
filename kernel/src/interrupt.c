@@ -13,7 +13,8 @@ static size_t plic_len;
 #define MAX_INTERRUPT   64
 struct interrupt_list {
     struct interrupt_list* next;
-    capability_t receiver;
+    capability_t cap;
+    pid_t pid;
 } *interrupt_subscribers[MAX_INTERRUPT] = { NULL };
 atomic_bool interrupt_subscribers_lock = false;
 
@@ -112,7 +113,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     struct interrupt_list* list = interrupt_subscribers[interrupt_id - 1];
                     while (list) {
-                        enqueue_interrupt_to_channel(list->receiver, interrupt_id);
+                        enqueue_interrupt_to_channel(list->cap, list->pid, interrupt_id);
                         list = list->next;
                     }
 
@@ -295,46 +296,9 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         trap->xs[REGISTER_A0] = trap->pid;
                         break;
 
-                    // getuid(pid_t pid) -> uid_t
-                    // Gets the uid of the given process. Returns -1 if the process doesn't exist.
-                    case 5: {
-                        pid_t pid = trap->xs[REGISTER_A1];
-                        process_t* process = get_process(pid);
-                        if (process)
-                            trap->xs[REGISTER_A0] = process->user;
-                        else
-                            trap->xs[REGISTER_A0] = -1;
-                        unlock_process(process);
-                        break;
-                    }
-
-                    // setuid(pid_t pid, uid_t uid) -> int status
-                    // Sets the uid of the given process (can only be done by processes with uid = 0). Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
-                    case 6: {
-                        pid_t pid = trap->xs[REGISTER_A1];
-                        uid_t uid = trap->xs[REGISTER_A2];
-
-                        process_t* current = get_process(trap->pid);
-
-                        if (current->user != 0) {
-                            trap->xs[REGISTER_A0] = 2;
-                            unlock_process(current);
-                            break;
-                        }
-
-                        unlock_process(current);
-                        process_t* process = get_process(pid);
-                        if (process) {
-                            process->user = uid;
-                            trap->xs[REGISTER_A0] = 0;
-                        } else trap->xs[REGISTER_A0] = 1;
-                        unlock_process(process);
-                        break;
-                    }
-
                     // sleep(size_t seconds, size_t micros) -> time_t current
                     // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
-                    case 7: {
+                    case 5: {
                         uint64_t seconds = trap->xs[REGISTER_A1];
                         uint64_t micros = trap->xs[REGISTER_A2];
 
@@ -360,7 +324,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     // spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
                     // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
                     // The executable may be a valid elf file. All data will be copied over to a new set of pages.
-                    case 8: {
+                    case 6: {
                         char* name = (void*) trap->xs[REGISTER_A1];
                         size_t name_size = trap->xs[REGISTER_A2];
                         void* exe = (void*) trap->xs[REGISTER_A3];
@@ -378,7 +342,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        process_t* child = spawn_process_from_elf(name, name_size, trap->pid, &elf, 2, args, args_size);
+                        process_t* child = spawn_process_from_elf(name, name_size, &elf, 2, args, args_size);
                         if (child == NULL) {
                             trap->xs[REGISTER_A0] = -1;
                             break;
@@ -387,8 +351,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (capability != NULL && child != NULL) {
                             capability_t b;
                             create_capability(capability, trap->pid, &b, child->pid);
-                            child->xs[REGISTER_A2] = (uint64_t) (b >> 64);
-                            child->xs[REGISTER_A3] = (uint64_t) b;
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;
@@ -396,52 +358,35 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // kill(pid_t pid) -> int status
-                    // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
-                    case 9: {
-                        pid_t pid = trap->xs[REGISTER_A1];
-
-                        process_t* current = get_process(trap->pid);
-                        process_t* victim = trap->pid == pid ? current : get_process(pid);
-
-                        if (victim == NULL) {
-                            trap->xs[REGISTER_A0] = 1;
-                            unlock_process(current);
-                            break;
-                        }
-
-                        if (pid == 0 || (current->user != 0 && victim->user != current->user)) {
-                            trap->xs[REGISTER_A0] = 2;
-                            if (current != victim)
-                                unlock_process(victim);
-                            unlock_process(current);
-                            break;
-                        }
-
-                        if (current != victim)
-                            unlock_process(victim);
-                        unlock_process(current);
-                        kill_process(pid);
-                        if (trap->pid == pid) {
-                            timer_switch(trap);
-                        } else trap->xs[REGISTER_A0] = 0;
-                        break;
-                    }
-
-                    // send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata) -> int status
-                    // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, 2 if message queue is full, and 3 if the channel has closed. Blocks until the message is sent if block is true. If block is false, then it immediately returns. If an invalid capability is passed in, this kills the process.
+                    // send(bool block, capability_t channel, int type, uint64_t data, uint64_t metadata) -> int status
+                    // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, 2 if message queue is full, and 3 if the channel has closed. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
                     // Types:
                     // - SIGNAL  - 0
-                    //      Metadata can be any integer argument for the signal (for example, the size of the requested data).
+                    //      User defined signal, metadata can be any integer argument for the signal (for example, the size of the requested data).
                     // - INT     - 1
                     //      Metadata can be set to send a 128 bit integer.
                     // - POINTER - 2
                     //      Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
-                    // - DATA - 3
+                    // - DATA    - 3
                     //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
-                    case 10: {
+                    // - KILL    - 4
+                    //      Metadata is ignored.
+                    //       - 0 - immediate kill, no handling is possible
+                    //       - 1 - interrupt, can be handled
+                    //       - 2 - suspend, can be handled
+                    //       - 3 - resume, can be handled
+                    //       - 4 - memory access violation
+                    // - CSIGNAL - 5
+                    //      Child received kill signal and died. Data contains exit code if available, metadata contains type of kill signal:
+                    //       - 0 - child killed
+                    //       - 1 - child interrupted
+                    //       - 2 - child suspended
+                    //       - 3 - child resumed
+                    //       - 4 - child received memory access violation
+                    //       - 5 - child exited normally
+                    case 7: {
                         bool block = trap->xs[REGISTER_A1];
-                        capability_t* capability = (void*) trap->xs[REGISTER_A2];
+                        capability_t capability = trap->xs[REGISTER_A2];
                         int type = trap->xs[REGISTER_A3];
                         uint64_t data = trap->xs[REGISTER_A4];
                         uint64_t meta = trap->xs[REGISTER_A5];
@@ -507,7 +452,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             .metadata = meta,
                         };
 
-                        switch (enqueue_message_to_channel(*capability, message)) {
+                        switch (enqueue_message_to_channel(capability, trap->pid, message)) {
                             case 0:
                                 if (message.metadata == 2 || message.metadata == 3)
                                     free((void*) message.data);
@@ -516,12 +461,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             case 1:
                                 if (message.metadata == 2 || message.metadata == 3)
                                     free((void*) message.data);
-                                if (trap->pid != 0) {
-                                    kill_process(trap->pid);
-                                    timer_switch(trap);
-                                } else {
-                                    trap->xs[REGISTER_A0] = 3;
-                                }
+                                trap->xs[REGISTER_A0] = 1;
                                 break;
                             case 2:
                                 if (block) {
@@ -539,18 +479,18 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // recv(bool block, capability_t* channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
-                    // Blocks until a message is received on the given channel and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received, 1 if not, and 2 if the channel has closed. Kills the process if an invalid capability was provided.
-                    case 11: {
+                    // recv(bool block, capability_t channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
+                    // Blocks until a message is received on the given channel and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received, 1 if not, and 2 if the channel has closed.
+                    case 8: {
                         bool block = trap->xs[REGISTER_A1];
-                        capability_t* capability = (void*) trap->xs[REGISTER_A2];
+                        capability_t capability = trap->xs[REGISTER_A2];
                         pid_t* pid = (void*) trap->xs[REGISTER_A3];
                         int* type = (void*) trap->xs[REGISTER_A4];
                         uint64_t* data = (void*) trap->xs[REGISTER_A5];
                         uint64_t* meta = (void*) trap->xs[REGISTER_A6];
 
                         process_message_t message;
-                        switch (dequeue_message_from_channel(trap->pid, *capability, &message)) {
+                        switch (dequeue_message_from_channel(trap->pid, capability, &message)) {
                             case 0:
                                 if (pid != NULL)
                                     *pid = message.source;
@@ -604,12 +544,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                     console_printf("[interrupt_handler] warning: unknown message type 0x%lx\n", message.type);
                                 break;
                             case 1:
-                                if (trap->pid != 0) {
-                                    kill_process(trap->pid);
-                                    timer_switch(trap);
-                                } else {
-                                    trap->xs[REGISTER_A0] = 2;
-                                }
+                                trap->xs[REGISTER_A0] = 2;
                                 break;
                             case 2:
                                 if (block) {
@@ -636,7 +571,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     //      Wakes when the pointer provided is the same as value.
                     // - SIZE     - 0,2,4,6
                     //      Determines the size of the value. 0 = u8, 6 = u64
-                    case 12: {
+                    case 9: {
                         void* ref = (void*) trap->xs[REGISTER_A1];
                         int type = trap->xs[REGISTER_A2];
                         uint64_t value = trap->xs[REGISTER_A3];
@@ -658,7 +593,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     // spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
                     // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
-                    case 13: {
+                    case 10: {
                         void* func = (void*) trap->xs[REGISTER_A1];
                         void* data = (void*) trap->xs[REGISTER_A2];
                         size_t size = trap->xs[REGISTER_A3];
@@ -669,24 +604,22 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
+                        unlock_process(child);
                         if (capability != NULL && child != NULL) {
                             capability_t b;
                             create_capability(capability, trap->pid, &b, child->pid);
-                            child->xs[REGISTER_A2] = (uint64_t) (b >> 64);
-                            child->xs[REGISTER_A3] = (uint64_t) b;
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;
-                        unlock_process(child);
                         break;
                     }
 
-                    // subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void
+                    // subscribe_to_interrupt(uint32_t id, capability_t capability) -> void
                     // Subscribes to an interrupt.
-                    case 14: {
+                    case 11: {
                         uint32_t id = trap->xs[REGISTER_A1];
-                        capability_t* cap = (void*) trap->xs[REGISTER_A2];
-                        if (cap == NULL || id == 0 || id > MAX_INTERRUPT)
+                        capability_t cap = trap->xs[REGISTER_A2];
+                        if (id == 0 || id > MAX_INTERRUPT)
                             break;
                         id--;
 
@@ -698,7 +631,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         struct interrupt_list* new = malloc(sizeof(struct interrupt_list));
                         *new = (struct interrupt_list) {
                             .next = interrupt_subscribers[id],
-                            .receiver = *cap,
+                            .cap = cap,
+                            .pid = trap->pid,
                         };
                         interrupt_subscribers[id] = new;
                         interrupt_subscribers_lock = false;
@@ -707,7 +641,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     // alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
                     // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed. If addr is not NULL, returns addresses that contain that address.
-                    case 15: {
+                    case 12: {
                         void* addr = (void*) trap->xs[REGISTER_A1];
                         size_t count = trap->xs[REGISTER_A2];
                         int perms = trap->xs[REGISTER_A3];
@@ -784,7 +718,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     // transfer_capability(capability_t* capability, pid_t pid) -> int status
                     // Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid. Returns 0 on success and 1 if the process doesn't exist.
-                    case 16: {
+                    case 13: {
+                        /*
                         capability_t* cap = (void*) trap->xs[REGISTER_A1];
                         pid_t pid = trap->xs[REGISTER_A2];
                         switch (transfer_capability(*cap, trap->pid, pid)) {
@@ -802,12 +737,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 console_puts("[interrupt_handler] warning: unknown return value from transfer_capability\n");
                                 break;
                         }
+                        */
                         break;
                     }
 
                     // clone_capability(capability_t*, capability_t*) -> void
                     // Clones a capability. If the capability is invalid, kills the process.
-                    case 17: {
+                    case 14: {
+                        /*
                         capability_t* cap = (void*) trap->xs[REGISTER_A1];
                         capability_t* new = (void*) trap->xs[REGISTER_A2];
                         switch (clone_capability(trap->pid, *cap, new)) {
@@ -818,18 +755,17 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 timer_switch(trap);
                                 break;
                         }
+                        */
 
                         break;
                     }
 
-                    // create_capability(capability_t* cap1, capability_t* cap2) -> void
-                    // Creates a pair of capabilities.
-                    case 18: {
-                        capability_t* cap1 = (void*) trap->xs[REGISTER_A1];
-                        capability_t* cap2 = (void*) trap->xs[REGISTER_A2];
-                        if (cap1 != NULL && cap2 != NULL)
-                            create_capability(cap1, trap->pid, cap2, trap->pid);
-                        break;
+                    case 15: {
+                        // TODO: use this
+                        //bool normal = trap->xs[REGISTER_A1];
+                        kill_process(trap->pid);
+                        timer_switch(trap);
+                        return trap;
                     }
 
                     default:

@@ -7,7 +7,7 @@
 
 typedef uint64_t pid_t;
 typedef uint64_t uid_t;
-typedef __uint128_t capability_t;
+typedef uint64_t capability_t;
 
 typedef struct {
     uint64_t seconds;
@@ -75,7 +75,7 @@ uint64_t kill(uint64_t pid);
 #define MSG_TYPE_DATA      3
 #define MSG_TYPE_INTERRUPT 4
 
-// send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata) -> int status
+// send(bool block, capability_t channel, int type, uint64_t data, uint64_t metadata) -> int status
 // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, and 2 if message queue is full. Blocks until the message is sent if block is true. If block is false, then it immediately returns. If an invalid capability is passed in, this kills the process.
 // Types:
 // - SIGNAL  - 0
@@ -86,11 +86,11 @@ uint64_t kill(uint64_t pid);
 //      Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
 // - DATA - 3
 //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
-int send(bool block, capability_t* channel, int type, uint64_t data, uint64_t metadata);
+int send(bool block, capability_t channel, int type, uint64_t data, uint64_t metadata);
 
-// recv(bool block, capability_t* channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
+// recv(bool block, capability_t channel, pid_t* pid, int* type, uint64_t* data, uint64_t* metadata) -> int status
 // Blocks until a message is received on the given channel and deposits the data into the pointers provided. If block is false, then it immediately returns. Returns 0 if message was received and 1 if not. Kills the process if an invalid capability was provided.
-int recv(bool block, capability_t* channel, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
+int recv(bool block, capability_t channel, uint64_t* pid, int* type, uint64_t* data, uint64_t* metadata);
 
 #define LOCK_WAIT   0
 #define LOCK_WAKE   1
@@ -133,5 +133,7 @@ void clone_capability(capability_t* original, capability_t* new);
 // create_capability(capability_t* cap1, capability_t* cap2) -> void
 // Creates a pair of capabilities.
 void create_capability(capability_t* cap1, capability_t* cap2);
+
+void exit(int _);
 
 #endif /* SYSCALL_H */

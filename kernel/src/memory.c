@@ -416,7 +416,7 @@ void free(void* p) {
 
 void* realloc(void* p, size_t new_size) {
     if (p == NULL)
-        return NULL;
+        return malloc(new_size);
 
     struct s_free_bucket* bucket = p;
     bucket--;

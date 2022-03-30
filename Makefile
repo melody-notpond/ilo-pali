@@ -33,10 +33,11 @@ run:
 boot: boot_dir lib
 	cd boot/fsd/ && cargo build --release
 	cp boot/fsd/target/riscv64gc-unknown-none-elf/release/fsd build/boot/
-	$(MAKE) -C boot/initd/
-	$(MAKE) -C boot/virtd/
-	$(MAKE) -C boot/virtblock/
-	$(MAKE) -C boot/virtgpu/
+	$(MAKE) -C boot/uwud/
+	#$(MAKE) -C boot/initd/
+	#$(MAKE) -C boot/virtd/
+	#$(MAKE) -C boot/virtblock/
+	#$(MAKE) -C boot/virtgpu/
 	cp boot/maps build/boot/
 
 root: root_dir lib

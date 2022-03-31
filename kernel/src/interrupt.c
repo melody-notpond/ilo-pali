@@ -28,6 +28,8 @@ void timer_switch(trap_t* trap) {
     pid_t next_pid = get_next_waiting_process(trap->pid);
     if (next_pid != (pid_t) -1)
         switch_to_process(trap, next_pid);
+    else save_process(trap);
+
     time_t next = get_time();
     next.micros += 10;
     set_next_time_interrupt(next);
@@ -86,14 +88,21 @@ bool lock_stop(void* ref, int type, uint64_t value) {
 }
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
+    synchronise_time(trap->hartid);
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
 
         switch (cause) {
-            // Software interrupt
-            case 1:
-                console_printf("async cause: %lx\ntrap location: %lx\ntrap caller: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA]);
-                while(1);
+            // Software interrupt (interprocessor interrupt, indicating that a process has died and each hart should check if its process is still alive)
+            case 1: {
+                uint64_t sip = 0;
+                asm volatile("csrw sip, %0" : "=r" (sip));
+                if (!process_exists(trap->pid)) {
+                    kill_process(trap->pid, true);
+                    timer_switch(trap);
+                }
+                break;
+            }
 
             // Timer interrupt
             case 5:
@@ -302,7 +311,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         uint64_t seconds = trap->xs[REGISTER_A1];
                         uint64_t micros = trap->xs[REGISTER_A2];
 
-                        time_t now = get_time();
+                        synchronise_time(trap->hartid);
+                        time_t now = get_sync();
                         if (seconds == 0 && micros == 0) {
                             trap->xs[REGISTER_A0] = now.seconds;
                             trap->xs[REGISTER_A1] = now.micros;
@@ -362,29 +372,35 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     // send(bool block, capability_t channel, int type, uint64_t data, uint64_t metadata) -> int status
                     // Sends data to the given channel. Returns 0 on success, 1 if invalid arguments, 2 if message queue is full, and 3 if the channel has closed. Blocks until the message is sent if block is true. If block is false, then it immediately returns.
                     // Types:
-                    // - SIGNAL  - 0
+                    // - USER       - 0
                     //      User defined signal, metadata can be any integer argument for the signal (for example, the size of the requested data).
-                    // - INT     - 1
+                    // - INT        - 1
                     //      Metadata can be set to send a 128 bit integer.
-                    // - POINTER - 2
+                    // - POINTER    - 2
                     //      Metadata contains the size of the pointer. The kernel will share the pages necessary between processes.
-                    // - DATA    - 3
+                    // - DATA       - 3
                     //      Metadata contains the size of the data. The kernel will copy the required data between processes. Maximum is 1 page.
-                    // - KILL    - 4
-                    //      Metadata is ignored.
+                    // - KILL       - 4
+                    //      Data is the exit code, metadata is one of the following:
                     //       - 0 - immediate kill, no handling is possible
-                    //       - 1 - interrupt, can be handled
-                    //       - 2 - suspend, can be handled
-                    //       - 3 - resume, can be handled
-                    //       - 4 - memory access violation
-                    // - CSIGNAL - 5
+                    //       - 1 - murder, can be handled
+                    //       - 2 - interrupt, can be handled
+                    //       - 3 - suspend, can be handled
+                    //       - 4 - resume, can be handled
+                    //       - 5 - memory access violation, can be handled by registering a segfault handler, but always kills the process
+                    // - CHILD      - 5
                     //      Child received kill signal and died. Data contains exit code if available, metadata contains type of kill signal:
                     //       - 0 - child killed
-                    //       - 1 - child interrupted
-                    //       - 2 - child suspended
-                    //       - 3 - child resumed
-                    //       - 4 - child received memory access violation
-                    //       - 5 - child exited normally
+                    //       - 1 - child murdered and died
+                    //       - 2 - child interrupted and died
+                    //       - 3 - child suspended
+                    //       - 4 - child resumed
+                    //       - 5 - child received memory access violation
+                    //       - 6 - child exited normally
+                    // - INTERRUPT  - 6
+                    //      Data contains interrupt id, metadata is 0.
+                    // - CAPABILITY - 7
+                    //      Sends a notification of a new capability. Data is the capability number, metadata is 0.
                     case 7: {
                         bool block = trap->xs[REGISTER_A1];
                         capability_t capability = trap->xs[REGISTER_A2];
@@ -402,7 +418,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                             // Pointers
                             case 2: {
-                                if (meta == 0) {
+                                if (data == 0 || meta == 0) {
                                     trap->xs[REGISTER_A0] = 1;
                                     return trap;
                                 }
@@ -430,7 +446,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                             // Data
                             case 3: {
-                                if (meta > PAGE_SIZE || meta == 0) {
+                                if (data == 0 || meta > PAGE_SIZE || meta == 0) {
                                     trap->xs[REGISTER_A0] = 1;
                                     return trap;
                                 }
@@ -440,6 +456,10 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 data = (uint64_t) copy;
                                 break;
                             }
+
+                            // Kill signal
+                            case 4:
+                                break;
 
                             default:
                                 trap->xs[REGISTER_A0] = 1;
@@ -455,8 +475,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         switch (enqueue_message_to_channel(capability, trap->pid, message)) {
                             case 0:
-                                if (message.metadata == 2 || message.metadata == 3)
-                                    free((void*) message.data);
                                 trap->xs[REGISTER_A0] = 0;
                                 break;
                             case 1:
@@ -465,12 +483,16 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                 trap->xs[REGISTER_A0] = 1;
                                 break;
                             case 2:
+                                if (message.metadata == 2 || message.metadata == 3)
+                                    free((void*) message.data);
                                 if (block) {
                                     trap->pc -= 4;
                                     timer_switch(trap);
                                 } else trap->xs[REGISTER_A0] = 2;
                                 break;
                             case 3:
+                                if (message.metadata == 2 || message.metadata == 3)
+                                    free((void*) message.data);
                                 trap->xs[REGISTER_A0] = 3;
                                 break;
                             default:
@@ -541,7 +563,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                                         unlock_process(process);
                                     }
                                     free((void*) message.data);
-                                } else if (message.type != 0 && message.type != 1 && message.type != 4)
+                                } else if (message.type > 7)
                                     console_printf("[interrupt_handler] warning: unknown message type 0x%lx\n", message.type);
                                 break;
                             case 1:
@@ -641,27 +663,27 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
+                    // alloc_pages_physical(void* addr, size_t count, int permissions, capability_t capability) -> (void* virtual, intptr_t physical)
                     // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed. If addr is not NULL, returns addresses that contain that address.
                     case 12: {
                         void* addr = (void*) trap->xs[REGISTER_A1];
                         size_t count = trap->xs[REGISTER_A2];
                         int perms = trap->xs[REGISTER_A3];
-                        capability_t* cap = (void*) trap->xs[REGISTER_A4];
+                        capability_t cap = trap->xs[REGISTER_A4];
 
                         process_t* process = get_process(trap->pid);
-                        if (cap == NULL && process->thread_source != 0 && trap->pid != 0) {
+                        if (process->thread_source != 0 && trap->pid != 0) {
                             trap->xs[REGISTER_A0] = 0;
                             trap->xs[REGISTER_A1] = 0;
                             unlock_process(process);
                             break;
                         }
 
-                        if (process->thread_source != 0 && trap->pid != 0 && !capability_connects_to_initd(*cap, trap->pid)) {
+                        if (process->thread_source != 0 && trap->pid != 0 && !capability_connects_to_initd(cap, trap->pid)) {
+                            trap->xs[REGISTER_A0] = 0;
+                            trap->xs[REGISTER_A1] = 0;
                             unlock_process(process);
-                            kill_process(trap->pid);
-                            timer_switch(trap);
-                            return trap;
+                            break;
                         }
 
                         int flags = 0;
@@ -764,8 +786,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                     case 15: {
                         // TODO: use this
-                        //bool normal = trap->xs[REGISTER_A1];
-                        kill_process(trap->pid);
+                        //uint64_t exit_code = trap->xs[REGISTER_A1];
+                        kill_process(trap->pid, true);
                         timer_switch(trap);
                         return trap;
                     }

@@ -35,7 +35,7 @@ void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu, bool boot_hart) {
     uint64_t s = sstatus;
     asm volatile("csrw sstatus, %0" : "=r" (s));
 
-    uint64_t sie = 0x220;
+    uint64_t sie = 0x222;
     asm volatile("csrw sie, %0" : "=r" (sie));
 
     if (!boot_hart) {
@@ -66,7 +66,7 @@ void kinit(uint64_t hartid, void* fdt) {
 
     console_printf("[kinit] %lx cpus present\n", cpu_count);
 
-    init_time(&devicetree);
+    init_time(&devicetree, hartid);
     init_pages(&devicetree);
     mark_as_used(&devicetree, (be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1) / PAGE_SIZE);
 

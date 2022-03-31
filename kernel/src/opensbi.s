@@ -10,6 +10,8 @@
 .global sbi_hart_get_status
 .global sbi_hart_suspend
 
+.global sbi_send_ipi
+
 # EIDs are stored in a7
 # FIDs are stored in a6
 
@@ -68,3 +70,12 @@ sbi_hart_suspend:
     li a7, 0x48534d
     ecall
     ret
+
+# sbi_send_ipi(unsigned long, unsigned long) -> struct sbiret
+# Sends an inter process interrupt.
+sbi_send_ipi:
+    li a6, 0
+    li a7, 0x735049
+    ecall
+    ret
+

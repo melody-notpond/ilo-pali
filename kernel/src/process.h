@@ -30,7 +30,32 @@ typedef struct s_process_channel {
     pid_t recipient_pid;
     capability_t recipient_channel;
     struct s_process_channel* recipient;
-    uint64_t allowed_messages;
+
+    struct {
+        uint8_t user : 1;
+        uint8_t integer : 1;
+        uint8_t pointer : 1;
+        uint8_t data : 1;
+        uint8_t capability : 1;
+        struct {
+            uint8_t kill : 1;
+            uint8_t murder : 2;
+            uint8_t interrupt : 2;
+            uint8_t suspend : 2;
+            uint8_t resume : 2;
+            uint8_t segfault : 1;
+        } kill;
+        struct {
+            uint8_t killed : 1;
+            uint8_t murdered : 1;
+            uint8_t interrupted : 1;
+            uint8_t suspended : 1;
+            uint8_t resumed : 1;
+            uint8_t segfaulted : 1;
+            uint8_t normal : 1;
+        } recipient_killed;
+    } allowed;
+
     process_message_t message_queue[PROCESS_MESSAGE_QUEUE_SIZE];
 } process_channel_t;
 
@@ -74,6 +99,10 @@ void init_processes();
 // Gets the process associated with the pid.
 process_t* get_process(pid_t pid);
 
+// get_process(pid_t) -> bool
+// Checks if the given pid has an associated process.
+bool process_exists(pid_t pid);
+
 // unlock_process(process_t*) -> void
 // Unlocks the mutex associated with the process and frees a process hashmap reader.
 void unlock_process(process_t* process);
@@ -90,6 +119,10 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
 // Creates a capability pair. The provided pointers are set to the capabilities.
 void create_capability(capability_t* a, process_t* process_a, capability_t* b, process_t* process_b, bool fa, bool fb);
 
+// save_process(trap_t*) -> void
+// Saves a process and pushes it onto the queue.
+void save_process(trap_t* trap);
+
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.
 void switch_to_process(trap_t* trap, pid_t pid);
@@ -98,9 +131,9 @@ void switch_to_process(trap_t* trap, pid_t pid);
 // Searches for the next waiting process. Returns -1 if not found.
 pid_t get_next_waiting_process(pid_t pid);
 
-// kill_process(pid_t) -> void
+// kill_process(pid_t, bool) -> void
 // Kills a process.
-void kill_process(pid_t pid);
+void kill_process(pid_t pid, bool erase);
 
 // transfer_capability(capability_t, pid_t, pid_t) -> capability_t
 // Transfers the given capability to a new process. Returns the capability if successful and -1 if not.

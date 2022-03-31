@@ -3,6 +3,7 @@
 #include "console.h"
 #include "hashmap.h"
 #include "memory.h"
+#include "opensbi.h"
 #include "process.h"
 #include "queue.h"
 
@@ -87,6 +88,15 @@ process_t* get_process(pid_t pid) {
     }
 
     return process;
+}
+
+// get_process(pid_t) -> bool
+// Checks if the given pid has an associated process.
+bool process_exists(pid_t pid) {
+    process_t* process = get_process(pid);
+    bool exists = process != NULL && process->state != PROCESS_STATE_DEAD;
+    unlock_process(process);
+    return exists;
 }
 
 // unlock_process(process_t*) -> void
@@ -312,7 +322,29 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
         .start = 0,
         .end = 0,
         .len = 0,
-        .allowed_messages = 0,
+        .allowed = {
+            .user = true,
+            .integer = true,
+            .pointer = fa || fb,
+            .data = fa || fb,
+            .kill = {
+                .kill = fa,
+                .murder = fa,
+                .interrupt = fa,
+                .suspend = fa,
+                .resume = fa,
+                .segfault = fa,
+            },
+            .recipient_killed = {
+                .killed = fb,
+                .murdered = fb,
+                .interrupted = fb,
+                .suspended = fb,
+                .resumed = fb,
+                .segfaulted = fb,
+                .normal = fb,
+            },
+        },
         .recipient_pid = process_b->pid,
     };
 
@@ -341,7 +373,29 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
         .start = 0,
         .end = 0,
         .len = 0,
-        .allowed_messages = 0,
+        .allowed = {
+            .user = true,
+            .integer = true,
+            .pointer = fa || fb,
+            .data = fa || fb,
+            .kill = {
+                .kill = fb,
+                .murder = fb,
+                .interrupt = fb,
+                .suspend = fb,
+                .resume = fb,
+                .segfault = fb,
+            },
+            .recipient_killed = {
+                .killed = fa,
+                .murdered = fa,
+                .interrupted = fa,
+                .suspended = fa,
+                .resumed = fa,
+                .segfaulted = fa,
+                .normal = fa,
+            },
+        },
         .recipient_pid = process_a->pid,
     };
 
@@ -371,6 +425,37 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
 
     unlock_process(process_a);
     unlock_process(process_b);
+}
+
+// save_process(trap_t*) -> void
+// Saves a process and pushes it onto the queue.
+void save_process(trap_t* trap) {
+    process_t* last = get_process(trap->pid);
+    if (last == NULL || last->state == PROCESS_STATE_DEAD) {
+        unlock_process(last);
+        return;
+    }
+
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
+        f = false;
+    }
+
+    queue_enqueue(jobs_queue, &trap->pid);
+    mutating_jobs_queue = false;
+
+    if (last->state == PROCESS_STATE_RUNNING)
+        last->state = PROCESS_STATE_WAIT;
+    last->pc = trap->pc;
+
+    for (int i = 0; i < 32; i++) {
+        last->xs[i] = trap->xs[i];
+    }
+
+    for (int i = 0; i < 32; i++) {
+        last->fs[i] = trap->fs[i];
+    }
+    unlock_process(last);
 }
 
 // switch_to_process(trap_t*, pid_t) -> void
@@ -446,13 +531,14 @@ pid_t get_next_waiting_process(pid_t pid) {
             len--;
             continue;
         }
+
         if (process->state == PROCESS_STATE_WAIT) {
             mutating_jobs_queue = false;
             unlock_process(process);
             return next_pid;
         } else if (process->state == PROCESS_STATE_BLOCK_SLEEP) {
             time_t wait = process->wake_on_time;
-            time_t now = get_time();
+            time_t now = get_sync();
 
             if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
                 process->xs[REGISTER_A0] = now.seconds;
@@ -473,6 +559,11 @@ pid_t get_next_waiting_process(pid_t pid) {
             }
             if (current != process->mmu_data)
                 set_mmu(current);
+        } else if (process->state == PROCESS_STATE_DEAD) {
+            unlock_process(process);
+            kill_process(next_pid, true);
+            len--;
+            continue;
         }
 
         queue_enqueue(jobs_queue, &next_pid);
@@ -491,9 +582,17 @@ pid_t get_next_waiting_process(pid_t pid) {
     return (pid_t) -1;
 }
 
-// kill_process(pid_t) -> void
+// kill_process(pid_t, bool) -> void
 // Kills a process.
-void kill_process(pid_t pid) {
+void kill_process(pid_t pid, bool erase) {
+    if (!erase) {
+        process_t* process = get_process(pid);
+        if (process == NULL)
+            return;
+        process->state = PROCESS_STATE_DEAD;
+        return;
+    }
+
     LOCK_WRITE_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
     if (process == NULL) {
@@ -526,9 +625,13 @@ void kill_process(pid_t pid) {
 
     if (process->thread_source == (pid_t) -1)
         clean_mmu_table(process->mmu_data);
+    process->state = PROCESS_STATE_DEAD;
     process->mutex_lock = false;
     hashmap_remove(processes, &pid);
     LOCK_RELEASE_PROCESSES();
+
+    // Update harts
+    sbi_send_ipi(0, -1);
 }
 
 // transfer_capability(capability_t, pid_t, pid_t) -> capability_t
@@ -603,6 +706,171 @@ int enqueue_message_to_channel(capability_t capability, pid_t pid, process_messa
         return 2;
     }
 
+    bool allowed = false;
+    switch (message.type) {
+        // User signal
+        case 0:
+            allowed = channel->allowed.user;
+            break;
+
+        // Integer
+        case 1:
+            allowed = channel->allowed.integer;
+            break;
+
+        // Pointer
+        case 2:
+            allowed = channel->allowed.pointer;
+            break;
+
+        // Data
+        case 3:
+            allowed = channel->allowed.data;
+            break;
+
+        // Kill
+        case 4: {
+            bool kill = false;
+            switch (message.metadata) {
+                // Kill
+                case 0: {
+                    kill = channel->allowed.kill.kill;
+                    break;
+                }
+
+                // Murder
+                case 1: {
+                    uint8_t ability = channel->allowed.kill.murder;
+                    kill = ability & 1;
+                    allowed = ability & 2;
+                    break;
+                }
+
+                // Interrupt
+                case 2: {
+                    uint8_t ability = channel->allowed.kill.interrupt;
+                    kill = ability & 1;
+                    allowed = ability & 2;
+                    break;
+                }
+
+
+                // Suspend
+                case 3: {
+                    uint8_t ability = channel->allowed.kill.suspend;
+                    kill = ability & 1;
+                    allowed = ability & 2;
+                    break;
+                }
+
+                // Resume
+                case 4: {
+                    uint8_t ability = channel->allowed.kill.resume;
+                    kill = ability & 1;
+                    allowed = ability & 2;
+                    break;
+                }
+
+                // Segfault
+                case 5: {
+                    // TODO: handlers
+                    kill = channel->allowed.kill.segfault;
+                    break;
+                }
+
+                // Everything else is invalid
+                default:
+                    console_printf("invalid kill type 0x%lx\n", message.metadata);
+                    break;
+            }
+
+            if (kill) {
+                pid_t victim = receiver->pid;
+                unlock_process(receiver);
+                unlock_process(process);
+
+                // Send the child died to the parent
+                switch (enqueue_message_to_channel(0, victim, (process_message_t) {
+                    .type = 5,
+                    .source = victim,
+                    .data = message.data,
+                    .metadata = message.metadata,
+                })) {
+                    case 0:
+                    case 1:
+                    case 3:
+                        kill_process(victim, false);
+                        break;
+
+                    case 2:
+                        return 2;
+
+                    default:
+                        console_printf("unknown exit code from enqueue_message_to_channel (this is a kernel bug)\n");
+                        break;
+                }
+
+                return 0;
+            }
+            break;
+        }
+
+        case 5:
+            switch (message.metadata) {
+                // Killed
+                case 0:
+                    allowed = channel->allowed.recipient_killed.killed;
+                    break;
+
+                // Murder
+                case 1:
+                    allowed = channel->allowed.recipient_killed.murdered;
+                    break;
+
+                // Interrupt
+                case 2:
+                    allowed = channel->allowed.recipient_killed.interrupted;
+                    break;
+
+                // Suspend
+                case 3:
+                    allowed = channel->allowed.recipient_killed.suspended;
+                    break;
+
+                // Resume
+                case 4:
+                    allowed = channel->allowed.recipient_killed.resumed;
+                    break;
+
+                // Segfault
+                case 5:
+                    allowed = channel->allowed.recipient_killed.segfaulted;
+                    break;
+
+                // Normal
+                case 6:
+                    allowed = channel->allowed.recipient_killed.normal;
+                    break;
+
+                // Invalid
+                default:
+                    console_printf("invalid child kill code %lx\n", message.metadata);
+                    break;
+            }
+            break;
+
+        // Everything else is invalid
+        default:
+            console_printf("invalid message type 0x%lx\n", message.type);
+            break;
+    }
+
+    if (!allowed) {
+        unlock_process(receiver);
+        unlock_process(process);
+        return 1;
+    }
+
     channel->message_queue[channel->end++] = message;
     if (channel->end >= PROCESS_MESSAGE_QUEUE_SIZE)
         channel->end = 0;
@@ -635,7 +903,7 @@ int enqueue_interrupt_to_channel(capability_t capability, pid_t pid, uint32_t id
     }
 
     channel->message_queue[channel->end++] = (process_message_t) {
-        .type = 4,
+        .type = 6,
         .source = 0,
         .data = id,
         .metadata = 0,

@@ -45,5 +45,9 @@ struct sbiret sbi_hart_get_status(unsigned long hartid);
 // Suspends the current hart.
 struct sbiret sbi_hart_suspend(uint32_t suspend_type, unsigned long resume_addr, unsigned long opaque);
 
+// sbi_send_ipi(unsigned long, unsigned long) -> struct sbiret
+// Sends an inter process interrupt.
+struct sbiret sbi_send_ipi(unsigned long hart_mask, unsigned long hart_mask_base);
+
 #endif /* OPENSBI_H */
 

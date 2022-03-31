@@ -30,7 +30,7 @@ typedef struct s_process_channel {
     pid_t recipient_pid;
     capability_t recipient_channel;
     struct s_process_channel* recipient;
-    bool can_kill_receiver;
+    uint64_t allowed_messages;
     process_message_t message_queue[PROCESS_MESSAGE_QUEUE_SIZE];
 } process_channel_t;
 
@@ -86,9 +86,9 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
 // Spawns a thread from the given process. Returns NULL on failure.
 process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
 
-// create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
+// create_capability(capability_t*, process_t*, capability_t*, process_t*, bool, bool) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
-void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb);
+void create_capability(capability_t* a, process_t* process_a, capability_t* b, process_t* process_b, bool fa, bool fb);
 
 // switch_to_process(pid_t) -> void
 // Jumps to the given process.

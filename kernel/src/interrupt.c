@@ -350,11 +350,12 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         if (capability != NULL && child != NULL) {
                             capability_t b;
-                            create_capability(capability, trap->pid, &b, child->pid);
+                            create_capability(capability, get_process(trap->pid), &b, child, false, true);
+                        } else {
+                            unlock_process(child);
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;
-                        unlock_process(child);
                         break;
                     }
 
@@ -604,10 +605,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             break;
                         }
 
-                        unlock_process(child);
                         if (capability != NULL && child != NULL) {
                             capability_t b;
-                            create_capability(capability, trap->pid, &b, child->pid);
+                            create_capability(capability, get_process(trap->pid), &b, child, false, true);
+                        } else {
+                            unlock_process(child);
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;

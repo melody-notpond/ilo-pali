@@ -304,21 +304,25 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     return process_ptr;
 }
 
-// create_capability(capability_t*, pid_t, capability_t*, pid_t) -> void
+// create_capability(capability_t*, process_t*, capability_t*, process_t*, bool, bool) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
-void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
-    if (pa == pb)
-        return;
-
+void create_capability(capability_t* a, process_t* process_a, capability_t* b, process_t* process_b, bool fa, bool fb) {
     process_channel_t* ca = malloc(sizeof(process_channel_t));
-    ca->start = 0;
-    ca->end = 0;
-    ca->len = 0;
-    ca->can_kill_receiver = false;
-    ca->recipient_pid = pb;
+    *ca = (process_channel_t) {
+        .start = 0,
+        .end = 0,
+        .len = 0,
+        .allowed_messages = 0,
+        .recipient_pid = process_b->pid,
+    };
 
-    process_t* process_a = get_process(pa);
-    if (process_a->channels_len >= process_a->channels_cap) {
+    size_t i;
+    for (i = !fa; i < process_a->channels_len; i++) {
+        if (process_a->channels[i] == NULL)
+            break;
+    }
+
+    if (i >= process_a->channels_cap) {
         if (process_a->channels_cap == 0) {
             process_a->channels_cap = 8;
         } else {
@@ -327,19 +331,26 @@ void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
         process_a->channels = realloc(process_a->channels, process_a->channels_cap * sizeof(process_channel_t*));
     }
 
-    process_a->channels[process_a->channels_len] = ca;
-    *a = process_a->channels_len;
-    process_a->channels_len++;
+    process_a->channels[i] = ca;
+    *a = i;
+    if (i >= process_a->channels_len)
+        process_a->channels_len = i + 1;
 
     process_channel_t* cb = malloc(sizeof(process_channel_t));
-    cb->start = 0;
-    cb->end = 0;
-    cb->len = 0;
-    cb->can_kill_receiver = false;
-    cb->recipient_pid = pa;
+    *cb = (process_channel_t) {
+        .start = 0,
+        .end = 0,
+        .len = 0,
+        .allowed_messages = 0,
+        .recipient_pid = process_a->pid,
+    };
 
-    process_t* process_b = get_process(pb);
-    if (process_b->channels_len >= process_b->channels_cap) {
+    for (i = !fb; i < process_b->channels_len; i++) {
+        if (process_b->channels[i] == NULL)
+            break;
+    }
+
+    if (i >= process_b->channels_cap) {
         if (process_b->channels_cap == 0) {
             process_b->channels_cap = 8;
         } else {
@@ -348,9 +359,10 @@ void create_capability(capability_t* a, pid_t pa, capability_t* b, pid_t pb) {
         process_b->channels = realloc(process_b->channels, process_b->channels_cap * sizeof(process_channel_t*));
     }
 
-    process_b->channels[process_b->channels_len] = cb;
-    *b = process_b->channels_len;
-    process_b->channels_len++;
+    process_b->channels[i] = cb;
+    *b = i;
+    if (i >= process_b->channels_len)
+        process_b->channels_len = i + 1;
 
     ca->recipient_channel = *b;
     cb->recipient_channel = *a;

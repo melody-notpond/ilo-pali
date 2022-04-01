@@ -17,7 +17,7 @@
 trap_t traps[MAX_TRAP_COUNT];
 size_t cpu_count = 0;
 
-void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu, bool boot_hart) {
+void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu) {
     extern int stack_top;
     trap_t* trap = &traps[hartid];
     trap->hartid = hartid;
@@ -29,23 +29,19 @@ void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu, bool boot_hart) {
 
     uint64_t sstatus;
     asm volatile("csrr %0, sstatus" : "=r" (sstatus));
-    sstatus |= 1 << 18;
-    if (!boot_hart)
-        sstatus |= 1 << 8 | 1 << 5;
+    sstatus |= 1 << 18 | 1 << 8 | 1 << 5;
     uint64_t s = sstatus;
     asm volatile("csrw sstatus, %0" : "=r" (s));
 
     uint64_t sie = 0x222;
     asm volatile("csrw sie, %0" : "=r" (sie));
 
-    if (!boot_hart) {
-        extern void do_nothing();
+    extern void do_nothing();
 
-        set_mmu(mmu);
-        trap->pc = (uint64_t) do_nothing;
-        sbi_set_timer(0);
-        jump_out_of_trap(trap);
-    }
+    set_mmu(mmu);
+    trap->pc = (uint64_t) do_nothing;
+    sbi_set_timer(0);
+    jump_out_of_trap(trap);
 }
 
 void kinit(uint64_t hartid, void* fdt) {
@@ -66,7 +62,7 @@ void kinit(uint64_t hartid, void* fdt) {
 
     console_printf("[kinit] %lx cpus present\n", cpu_count);
 
-    init_time(&devicetree, hartid);
+    init_time(&devicetree);
     init_pages(&devicetree);
     mark_as_used(&devicetree, (be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1) / PAGE_SIZE);
 
@@ -114,7 +110,6 @@ void kinit(uint64_t hartid, void* fdt) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
 
-    init_hart_helper(hartid, initd->mmu_data, true);
     initd->xs[REGISTER_A0] = (uint64_t) fdt;
     mmu_level_1_t* mmu = initd->mmu_data;
     unlock_process(initd);
@@ -127,11 +122,7 @@ void kinit(uint64_t hartid, void* fdt) {
         }
     }
 
-    console_puts("[kinit] starting initd\n");
-    switch_to_process(&traps[hartid], 0);
-    sbi_set_timer(0);
-
-    jump_out_of_trap(&traps[hartid]);
+    init_hart_helper(hartid, initd->mmu_data);
 
 	while(1);
 }

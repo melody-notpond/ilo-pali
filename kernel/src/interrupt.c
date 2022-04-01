@@ -28,13 +28,31 @@ void timer_switch(trap_t* trap) {
     pid_t next_pid = get_next_waiting_process(trap->pid);
     if (next_pid != (pid_t) -1)
         switch_to_process(trap, next_pid);
-    else save_process(trap);
+    else {
+        save_process(trap);
+        trap->pid = -1;
+    }
 
     time_t next = get_time();
     next.micros += 10;
+    while (next.micros >= 1000000) {
+        next.seconds += 1;
+        next.micros -= 1000000;
+    }
+
     set_next_time_interrupt(next);
     if (next_pid == (pid_t) -1) {
         sbi_hart_suspend(0, (unsigned long) hart_suspend_resume, (unsigned long) trap);
+
+        // In the event that suspending doesn't work, just loop forever until an interrupt occurs
+        uint64_t sstatus;
+        asm volatile("csrr %0, sstatus" : "=r" (sstatus));
+        sstatus |= 1 << 8 | 1 << 5;
+        uint64_t s = sstatus;
+        asm volatile("csrw sstatus, %0" : "=r" (s));
+        extern void do_nothing();
+        trap->pc = (uint64_t) do_nothing;
+        jump_out_of_trap(trap);
     } else {
         uint64_t sstatus;
         asm volatile("csrr %0, sstatus" : "=r" (sstatus));
@@ -88,7 +106,6 @@ bool lock_stop(void* ref, int type, uint64_t value) {
 }
 
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
-    synchronise_time(trap->hartid);
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
 
@@ -311,8 +328,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         uint64_t seconds = trap->xs[REGISTER_A1];
                         uint64_t micros = trap->xs[REGISTER_A2];
 
-                        synchronise_time(trap->hartid);
-                        time_t now = get_sync();
+                        time_t now = get_time();
                         if (seconds == 0 && micros == 0) {
                             trap->xs[REGISTER_A0] = now.seconds;
                             trap->xs[REGISTER_A1] = now.micros;
@@ -321,6 +337,10 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                         now.seconds += seconds;
                         now.micros += micros;
+                        while (now.micros >= 1000000) {
+                            now.seconds += 1;
+                            now.micros -= 1000000;
+                        }
 
                         process_t* process = get_process(trap->pid);
                         process->wake_on_time = now;

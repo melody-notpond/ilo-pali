@@ -74,6 +74,7 @@ static inline void LOCK_RELEASE_PROCESSES() {
 process_t* get_process(pid_t pid) {
     uint64_t ra;
     asm volatile("mv %0, ra" : "=r" (ra));
+    //console_printf("get_process called from 0x%lx\n", ra);
 
     LOCK_READ_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
@@ -90,7 +91,7 @@ process_t* get_process(pid_t pid) {
     return process;
 }
 
-// get_process(pid_t) -> bool
+// process_exists(pid_t) -> bool
 // Checks if the given pid has an associated process.
 bool process_exists(pid_t pid) {
     process_t* process = get_process(pid);
@@ -223,15 +224,13 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
     process_t* process_ptr = hashmap_get(processes, &pid);
     process_ptr->mutex_lock = true;
     processes_lock = processes_lock << 1;
-    if (pid != 0) {
-        bool f = false;
-        while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
-            f = false;
-        }
-
-        queue_enqueue(jobs_queue, &pid);
-        mutating_jobs_queue = false;
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
+        f = false;
     }
+
+    queue_enqueue(jobs_queue, &pid);
+    mutating_jobs_queue = false;
     return process_ptr;
 }
 
@@ -436,14 +435,6 @@ void save_process(trap_t* trap) {
         return;
     }
 
-    bool f = false;
-    while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
-        f = false;
-    }
-
-    queue_enqueue(jobs_queue, &trap->pid);
-    mutating_jobs_queue = false;
-
     if (last->state == PROCESS_STATE_RUNNING)
         last->state = PROCESS_STATE_WAIT;
     last->pc = trap->pc;
@@ -455,6 +446,15 @@ void save_process(trap_t* trap) {
     for (int i = 0; i < 32; i++) {
         last->fs[i] = trap->fs[i];
     }
+
+    bool f = false;
+    while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
+        f = false;
+    }
+
+    queue_enqueue(jobs_queue, &trap->pid);
+    mutating_jobs_queue = false;
+
     unlock_process(last);
 }
 
@@ -498,10 +498,10 @@ void switch_to_process(trap_t* trap, pid_t pid) {
             trap->fs[i] = next->fs[i];
         }
 
-        set_mmu(next->mmu_data);
-
         next->state = PROCESS_STATE_RUNNING;
     }
+
+    set_mmu(next->mmu_data);
 
     if (last != next)
         unlock_process(last);
@@ -538,12 +538,13 @@ pid_t get_next_waiting_process(pid_t pid) {
             return next_pid;
         } else if (process->state == PROCESS_STATE_BLOCK_SLEEP) {
             time_t wait = process->wake_on_time;
-            time_t now = get_sync();
+            time_t now = get_time();
 
             if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
                 process->xs[REGISTER_A0] = now.seconds;
                 process->xs[REGISTER_A1] = now.micros;
                 mutating_jobs_queue = false;
+                process->state = PROCESS_STATE_WAIT;
                 unlock_process(process);
                 return next_pid;
             }
@@ -566,9 +567,9 @@ pid_t get_next_waiting_process(pid_t pid) {
             continue;
         }
 
+        unlock_process(process);
         queue_enqueue(jobs_queue, &next_pid);
         len--;
-        unlock_process(process);
     }
 
     mutating_jobs_queue = false;
@@ -590,6 +591,7 @@ void kill_process(pid_t pid, bool erase) {
         if (process == NULL)
             return;
         process->state = PROCESS_STATE_DEAD;
+        unlock_process(process);
         return;
     }
 
@@ -753,7 +755,6 @@ int enqueue_message_to_channel(capability_t capability, pid_t pid, process_messa
                     allowed = ability & 2;
                     break;
                 }
-
 
                 // Suspend
                 case 3: {

@@ -12,12 +12,10 @@
 
 void thread() {
     uart_printf("thread started\n");
-    char* data;
-    recv(true, 0, NULL, NULL, (uint64_t*) &data, NULL);
-    uart_printf("got: %s\n", data);
-    sleep(5, 0);
-    uart_printf("this should never be reached\n");
-    while (1);
+    while (1) {
+        uart_printf("uwu\n");
+        sleep(0, 500000);
+    }
 }
 
 void _start() {
@@ -32,8 +30,7 @@ void _start() {
     capability_t cap;
     spawn_thread(thread, NULL, 0, &cap);
     uart_printf("spawned thread\n");
-    send(true, cap, MSG_TYPE_DATA, (uint64_t) "from uwud", 10);
-    uart_printf("message sent\n");
+    sleep(2, 0);
     send(true, cap, 4, 69, 0);
     uint64_t exit_code;
     recv(true, cap, NULL, NULL, &exit_code, NULL);

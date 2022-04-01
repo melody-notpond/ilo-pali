@@ -59,12 +59,12 @@ handle_interrupt:
 
     # Set sp
     ld sp, 0x108(t6)
+    mv fp, sp
 
     # Call interrupt handler
     csrr a0, scause
     mv a1, t6
     jal interrupt_handler
-    mv t6, a0
 
 jump_out_of_trap:
     # Revert pc
@@ -110,12 +110,13 @@ jump_out_of_trap:
 hart_suspend_resume:
     # Set sp
     ld sp, 0x108(a1)
+    mv fp, sp
 
     # Call interrupt handler
     csrr a0, scause
-    li a0, 0x8000000000000005
+    li t6, 0x222
+    csrw sie, t6
     jal interrupt_handler
-    mv t6, a0
 
     # Jump out of trap
     j jump_out_of_trap

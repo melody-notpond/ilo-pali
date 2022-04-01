@@ -50,4 +50,5 @@ init_hart:
 	j init_hart_helper
 
 do_nothing:
+    wfi
     j do_nothing

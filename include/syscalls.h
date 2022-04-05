@@ -6,7 +6,6 @@
 #include <stdint.h>
 
 typedef uint64_t pid_t;
-typedef uint64_t uid_t;
 typedef uint64_t capability_t;
 
 typedef struct {
@@ -47,14 +46,6 @@ int dealloc_page(void* addr, size_t count);
 // getpid() -> pid_t
 // Gets the pid of the current process.
 pid_t getpid();
-
-// getuid(pid_t pid) -> uid_t
-// Gets the uid of the given process. Returns -1 if the process doesn't exist.
-uid_t getuid(pid_t pid);
-
-// setuid(pid_t pid, uid_t uid) -> int status
-// Sets the uid of the given process (can only be done by processes with uid = 0). Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
-int setuid(pid_t pid, uid_t uid);
 
 // sleep(size_t seconds, size_t micros) -> time_t current
 // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.

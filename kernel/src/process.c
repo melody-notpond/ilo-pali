@@ -186,11 +186,15 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
 
     max_page = (void*) (((intptr_t) max_page + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE);
 
+    mmu_alloc(top, ++max_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    void* fault_stack = max_page;
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
     process_t process = { 0 };
+    process.fault_stack = fault_stack;
     process.last_virtual_page = (void*) max_page + PAGE_SIZE * (stack_size + 1);
+    process.fault_stack = fault_stack;
     process.xs[REGISTER_SP] = (uint64_t) process.last_virtual_page - 8;
     process.xs[REGISTER_FP] = process.xs[REGISTER_SP];
     process.last_virtual_page += PAGE_SIZE;
@@ -220,6 +224,8 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
     process.channels = NULL;
     process.channels_len = 0;
     process.channels_cap = 0;
+    process.fault_handler = NULL;
+    process.faulted = false;
     hashmap_insert(processes, &pid, &process);
     process_t* process_ptr = hashmap_get(processes, &pid);
     process_ptr->mutex_lock = true;
@@ -274,12 +280,17 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     process.mmu_data = parent->mmu_data;
     process.thread_source = parent->pid;
 
+    parent->last_virtual_page += PAGE_SIZE;
+    mmu_alloc(parent->mmu_data, parent->last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    parent->last_virtual_page += PAGE_SIZE;
+    void* fault_stack = parent->last_virtual_page;
     for (size_t i = 1; i <= stack_size; i++) {
         mmu_alloc(parent->mmu_data, parent->last_virtual_page + PAGE_SIZE * i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
     parent->last_virtual_page += PAGE_SIZE * (stack_size + 1);
     process.xs[REGISTER_SP] = (uint64_t) parent->last_virtual_page - 8;
     process.xs[REGISTER_FP] = process.xs[REGISTER_SP];
+    process.fault_stack = fault_stack;
     parent->last_virtual_page += PAGE_SIZE;
 
     process.xs[REGISTER_A0] = (uint64_t) args;
@@ -296,6 +307,8 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     process.channels = NULL;
     process.channels_len = 0;
     process.channels_cap = 0;
+    process.fault_handler = NULL;
+    process.faulted = false;
     hashmap_insert(processes, &pid, &process);
     parent->mutex_lock = false;
     process_t* process_ptr = hashmap_get(processes, &pid);

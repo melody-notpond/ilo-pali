@@ -158,31 +158,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
         }
     } else {
         switch (cause) {
-            // Instruction address misaligned
-            case 0:
-
-            // Instruction access fault
-            case 1:
-
-            // Illegal instruction
-            case 2:
-
             // Breakpoint
+            // TODO: figure out how this works
             case 3:
-
-            // Load address misaligned
-            case 4:
-
-            // Load access fault
-            case 5:
-
-            // Store address misaligned
-            case 6:
-
-            // Store access fault
-            case 7:
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap pid: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid);
-                while(1);
+                console_printf("breakpoint\n");
+                break;
 
             // Environment call (ie, syscall)
             case 8:
@@ -804,6 +784,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // exit(uint64_t exit_code) -> !
+                    // Exits the current process, sending the exit code to the parent process.
                     case 15: {
                         uint64_t exit_code = trap->xs[REGISTER_A1];
                         process_message_t message = {
@@ -818,11 +800,42 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         return trap;
                     }
 
+                    // set_fault_handler(void (*handler)(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+                    // Sets the fault handler. This function will be called if the process faults. Once the process faults, the process is then automatically killed once the handler exits. Only one fault can occur per process. Once the process faults once, even if the handler somehow restores state, if it faults again the handler will not be called again and the process is killed immediately.
+                    case 16: {
+                        void* handler = (void*) trap->xs[REGISTER_A1];
+                        process_t* process = get_process(trap->pid);
+                        process->fault_handler = handler;
+                        unlock_process(process);
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                         break;
                 }
                 break;
+
+            // Instruction address misaligned
+            case 0:
+
+            // Instruction access fault
+            case 1:
+
+            // Illegal instruction
+            case 2:
+
+            // Load address misaligned
+            case 4:
+
+            // Load access fault
+            case 5:
+
+            // Store address misaligned
+            case 6:
+
+            // Store access fault
+            case 7:
 
             // Instruction page fault
             case 12:
@@ -831,12 +844,37 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
             case 13:
 
             // Store page fault
-            case 15:
+            case 15: {
+                process_t* process = get_process(trap->pid);
+                if (process->faulted || process->fault_handler == NULL) {
+                    console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, process->name);
+                    unlock_process(process);
+                    while(1);
+                    kill_process(trap->pid, true);
+                    timer_switch(trap);
+                    return trap;
+                }
+
+                process->faulted = true;
+                trap->xs[REGISTER_A0] = cause;
+                trap->xs[REGISTER_A1] = trap->pc;
+                trap->xs[REGISTER_A2] = trap->xs[REGISTER_SP];
+                trap->xs[REGISTER_A3] = trap->xs[REGISTER_FP];
+                trap->pc = (uint64_t) process->fault_handler;
+                trap->xs[REGISTER_SP] = (uint64_t) process->fault_stack - 8;
+                trap->xs[REGISTER_FP] = (uint64_t) process->fault_stack - 8;
+                console_printf("sp = %lx\n", trap->xs[REGISTER_SP]);
+                unlock_process(process);
+                break;
+            }
 
             // Invalid or handled by machine mode
-            default:
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap pid: %lx\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid);
+            default: {
+                process_t* process = get_process(trap->pid);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, process->name);
+                unlock_process(process);
                 while(1);
+            }
         }
     }
 

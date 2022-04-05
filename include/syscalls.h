@@ -134,6 +134,12 @@ void clone_capability(capability_t* original, capability_t* new);
 // Creates a pair of capabilities.
 void create_capability(capability_t* cap1, capability_t* cap2);
 
+// exit(uint64_t exit_code) -> !
+// Exits the current process, sending the exit code to the parent process.
 void exit(uint64_t code);
+
+// set_fault_handler(void (*handler)(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+// Sets the fault handler. This function will be called if the process faults. Once the process faults, the process is then automatically killed once the handler exits. Only one fault can occur per process. Once the process faults once, even if the handler somehow restores state, if it faults again the handler will not be called again and the process is killed immediately.
+void set_fault_handler(void (*handler)(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp));
 
 #endif /* SYSCALL_H */

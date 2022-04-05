@@ -129,7 +129,15 @@ void clone_capability(capability_t* original, capability_t* new) {
     syscall(14, (uint64_t) original, (uint64_t) new, 0, 0, 0, 0, 0);
 }
 
+// exit(uint64_t exit_code) -> !
+// Exits the current process, sending the exit code to the parent process.
 void exit(uint64_t code) {
     syscall(15, code, 0, 0, 0, 0, 0, 0);
     while (1);
+}
+
+// set_fault_handler(void (*handler)(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+// Sets the fault handler. This function will be called if the process faults. Once the process faults, the process is then automatically killed once the handler exits. Only one fault can occur per process. Once the process faults once, even if the handler somehow restores state, if it faults again the handler will not be called again and the process is killed immediately.
+void set_fault_handler(void (*handler)(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp)) {
+    syscall(16, (uint64_t) handler, 0, 0, 0, 0, 0, 0);
 }

@@ -10,14 +10,15 @@
 #include "fat16.h"
 #include "format.h"
 
+void fault_handler(uint64_t fault, uint64_t pc, uint64_t sp, uint64_t fp) {
+    uart_printf("faulted %i at 0x%x with sp=%x and fp=%x\n", fault, pc, sp, fp);
+}
+
 void thread() {
     uart_printf("thread started\n");
-    for (int i = 0; i < 4; i++) {
-        uart_printf("uwu\n");
-        sleep(0, 500000);
-    }
-
-    exit(69);
+    set_fault_handler(fault_handler);
+    *((volatile char*) 0) = 0;
+    uart_printf("this should never be reached\n");
 }
 
 void _start() {

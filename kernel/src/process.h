@@ -73,6 +73,10 @@ typedef struct {
     pid_t thread_source;
     atomic_bool mutex_lock;
 
+    void* fault_handler;
+    bool faulted;
+    void* fault_stack;
+
     process_state_t state;
     mmu_level_1_t* mmu_data;
     time_t wake_on_time;

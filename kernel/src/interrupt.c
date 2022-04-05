@@ -849,6 +849,13 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 if (process->faulted || process->fault_handler == NULL) {
                     console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, process->name);
                     unlock_process(process);
+                    process_message_t message = {
+                        .source = trap->pid,
+                        .type = 5,
+                        .data = cause,
+                        .metadata = 5,
+                    };
+                    enqueue_message_to_channel(0, trap->pid, message);
                     kill_process(trap->pid, true);
                     timer_switch(trap);
                     return trap;

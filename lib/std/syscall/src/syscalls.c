@@ -129,7 +129,7 @@ void clone_capability(capability_t* original, capability_t* new) {
     syscall(14, (uint64_t) original, (uint64_t) new, 0, 0, 0, 0, 0);
 }
 
-void exit(int _) {
-    syscall(15, 0, 0, 0, 0, 0, 0, 0);
+void exit(uint64_t code) {
+    syscall(15, code, 0, 0, 0, 0, 0, 0);
     while (1);
 }

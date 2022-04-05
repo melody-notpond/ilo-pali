@@ -805,8 +805,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     }
 
                     case 15: {
-                        // TODO: use this
-                        //uint64_t exit_code = trap->xs[REGISTER_A1];
+                        uint64_t exit_code = trap->xs[REGISTER_A1];
+                        process_message_t message = {
+                            .source = trap->pid,
+                            .type = 5,
+                            .data = exit_code,
+                            .metadata = 6,
+                        };
+                        enqueue_message_to_channel(0, trap->pid, message);
                         kill_process(trap->pid, true);
                         timer_switch(trap);
                         return trap;

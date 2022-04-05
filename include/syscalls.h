@@ -134,6 +134,6 @@ void clone_capability(capability_t* original, capability_t* new);
 // Creates a pair of capabilities.
 void create_capability(capability_t* cap1, capability_t* cap2);
 
-void exit(int _);
+void exit(uint64_t code);
 
 #endif /* SYSCALL_H */

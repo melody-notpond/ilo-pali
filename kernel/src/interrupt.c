@@ -849,7 +849,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 if (process->faulted || process->fault_handler == NULL) {
                     console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, process->name);
                     unlock_process(process);
-                    while(1);
                     kill_process(trap->pid, true);
                     timer_switch(trap);
                     return trap;
@@ -863,7 +862,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 trap->pc = (uint64_t) process->fault_handler;
                 trap->xs[REGISTER_SP] = (uint64_t) process->fault_stack - 8;
                 trap->xs[REGISTER_FP] = (uint64_t) process->fault_stack - 8;
-                console_printf("sp = %lx\n", trap->xs[REGISTER_SP]);
                 unlock_process(process);
                 break;
             }

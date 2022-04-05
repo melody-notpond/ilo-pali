@@ -740,47 +740,20 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // transfer_capability(capability_t* capability, pid_t pid) -> int status
-                    // Transfers the given capability to the process with the associated pid. Kills the process if the capability is invalid. Returns 0 on success and 1 if the process doesn't exist.
+                    // transfer_capability(capability_t* capability, capability_t dest) -> int status
+                    // Transfers the given capability across a capability. Returns -1 on failure.
                     case 13: {
-                        /*
-                        capability_t* cap = (void*) trap->xs[REGISTER_A1];
-                        pid_t pid = trap->xs[REGISTER_A2];
-                        switch (transfer_capability(*cap, trap->pid, pid)) {
-                            case 0:
-                                trap->xs[REGISTER_A0] = 0;
-                                break;
-                            case 1:
-                                kill_process(trap->pid);
-                                timer_switch(trap);
-                                return trap;
-                            case 2:
-                                trap->xs[REGISTER_A0] = 1;
-                                break;
-                            default:
-                                console_puts("[interrupt_handler] warning: unknown return value from transfer_capability\n");
-                                break;
-                        }
-                        */
+                        capability_t cap = trap->xs[REGISTER_A1];
+                        capability_t dest = trap->xs[REGISTER_A2];
+                        trap->xs[REGISTER_A0] = transfer_capability(cap, trap->pid, dest);
                         break;
                     }
 
-                    // clone_capability(capability_t*, capability_t*) -> void
-                    // Clones a capability. If the capability is invalid, kills the process.
+                    // clone_capability(capability_t) -> capability_t
+                    // Clones a capability. Returns -1 on failure.
                     case 14: {
-                        /*
-                        capability_t* cap = (void*) trap->xs[REGISTER_A1];
-                        capability_t* new = (void*) trap->xs[REGISTER_A2];
-                        switch (clone_capability(trap->pid, *cap, new)) {
-                            case 0:
-                                break;
-                            default:
-                                kill_process(trap->pid);
-                                timer_switch(trap);
-                                break;
-                        }
-                        */
-
+                        capability_t cap = trap->xs[REGISTER_A1];
+                        trap->xs[REGISTER_A0] = clone_capability(trap->pid, cap);
                         break;
                     }
 

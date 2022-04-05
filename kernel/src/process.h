@@ -141,11 +141,11 @@ void kill_process(pid_t pid, bool erase);
 
 // transfer_capability(capability_t, pid_t, pid_t) -> capability_t
 // Transfers the given capability to a new process. Returns the capability if successful and -1 if not.
-capability_t transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner);
+capability_t transfer_capability(capability_t capability, pid_t pid, capability_t dest);
 
-// clone_capability(pid_t, capability_t, capability_t*) -> int
-// Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
-int clone_capability(pid_t pid, capability_t original, capability_t* new);
+// clone_capability(pid_t, capability_t) -> capability_t
+// Clones a capability. Returns -1 on failure.
+capability_t clone_capability(pid_t pid, capability_t original);
 
 // enqueue_message_to_channel(capability_t, pid_t, process_message_t) -> int
 // Enqueues a message to a channel's message queue. Returns 0 if successful, 1 if the capability is invalid, 2 if the queue is full, and 3 if the connection has closed.

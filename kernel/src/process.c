@@ -326,6 +326,28 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     return process_ptr;
 }
 
+capability_t insert_capability_in_process(bool first, process_t* process, process_channel_t* channel) {
+    size_t i;
+    for (i = !first; i < process->channels_len; i++) {
+        if (process->channels[i] == NULL)
+            break;
+    }
+
+    if (i >= process->channels_cap) {
+        if (process->channels_cap == 0) {
+            process->channels_cap = 8;
+        } else {
+            process->channels_cap <<= 1;
+        }
+        process->channels = realloc(process->channels, process->channels_cap * sizeof(process_channel_t*));
+    }
+
+    process->channels[i] = channel;
+    if (i >= process->channels_len)
+        process->channels_len = i + 1;
+    return i;
+}
+
 // create_capability(capability_t*, process_t*, capability_t*, process_t*, bool, bool) -> void
 // Creates a capability pair. The provided pointers are set to the capabilities.
 void create_capability(capability_t* a, process_t* process_a, capability_t* b, process_t* process_b, bool fa, bool fb) {
@@ -339,6 +361,7 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
             .integer = true,
             .pointer = fa || fb,
             .data = fa || fb,
+            .capability = fa || fb,
             .kill = {
                 .kill = fa,
                 .murder = fa,
@@ -360,25 +383,7 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
         .recipient_pid = process_b->pid,
     };
 
-    size_t i;
-    for (i = !fa; i < process_a->channels_len; i++) {
-        if (process_a->channels[i] == NULL)
-            break;
-    }
-
-    if (i >= process_a->channels_cap) {
-        if (process_a->channels_cap == 0) {
-            process_a->channels_cap = 8;
-        } else {
-            process_a->channels_cap <<= 1;
-        }
-        process_a->channels = realloc(process_a->channels, process_a->channels_cap * sizeof(process_channel_t*));
-    }
-
-    process_a->channels[i] = ca;
-    *a = i;
-    if (i >= process_a->channels_len)
-        process_a->channels_len = i + 1;
+    *a = insert_capability_in_process(fa, process_a, ca);
 
     process_channel_t* cb = malloc(sizeof(process_channel_t));
     *cb = (process_channel_t) {
@@ -390,6 +395,7 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
             .integer = true,
             .pointer = fa || fb,
             .data = fa || fb,
+            .capability = fa || fb,
             .kill = {
                 .kill = fb,
                 .murder = fb,
@@ -411,24 +417,7 @@ void create_capability(capability_t* a, process_t* process_a, capability_t* b, p
         .recipient_pid = process_a->pid,
     };
 
-    for (i = !fb; i < process_b->channels_len; i++) {
-        if (process_b->channels[i] == NULL)
-            break;
-    }
-
-    if (i >= process_b->channels_cap) {
-        if (process_b->channels_cap == 0) {
-            process_b->channels_cap = 8;
-        } else {
-            process_b->channels_cap <<= 1;
-        }
-        process_b->channels = realloc(process_b->channels, process_b->channels_cap * sizeof(process_channel_t*));
-    }
-
-    process_b->channels[i] = cb;
-    *b = i;
-    if (i >= process_b->channels_len)
-        process_b->channels_len = i + 1;
+    *b = insert_capability_in_process(fb, process_b, cb);
 
     ca->recipient_channel = *b;
     cb->recipient_channel = *a;
@@ -651,49 +640,65 @@ void kill_process(pid_t pid, bool erase) {
 
 // transfer_capability(capability_t, pid_t, pid_t) -> capability_t
 // Transfers the given capability to a new process. Returns the capability if successful and -1 if not.
-capability_t transfer_capability(capability_t capability, pid_t old_owner, pid_t new_owner) {
-    if (old_owner == new_owner)
-        return -1;
+capability_t transfer_capability(capability_t capability, pid_t pid, capability_t dest) {
+    process_t* process = get_process(pid);
 
-    process_t* process = get_process(old_owner);
-    process_t* new = get_process(new_owner);
-
-    if (process == NULL || process->channels_len <= capability || new == NULL) {
+    if (process == NULL || process->channels_len <= capability || process->channels_len <= dest) {
         unlock_process(process);
-        unlock_process(new);
         return -1;
     }
     process_channel_t* channel = process->channels[capability];
     process->channels[capability] = NULL;
 
-    if (channel == NULL || channel->recipient == NULL)
+    if (channel == NULL || channel->recipient == NULL) {
+        unlock_process(process);
         return -1;
-
-    if (new->channels_len >= new->channels_cap) {
-        if (new->channels_cap == 0) {
-            new->channels_cap = 8;
-        } else {
-            new->channels_cap <<= 1;
-        }
-        new->channels = realloc(new->channels, new->channels_cap * sizeof(process_channel_t*));
     }
 
-    new->channels[new->channels_len] = channel;
-    capability_t cap = new->channels_len;
-    new->channels_len++;
+    process_channel_t* dest_channel = process->channels[dest];
+    if (channel == NULL || channel->recipient == NULL) {
+        unlock_process(process);
+        return -1;
+    }
 
-    channel->recipient->recipient_pid = new_owner;
+    process_t* new = get_process(dest_channel->recipient_pid);
+
+    capability_t cap = insert_capability_in_process(false, new, channel);
+
+    channel->recipient->recipient_pid = dest_channel->recipient_pid;
     channel->recipient->recipient_channel = cap;
 
     unlock_process(process);
     unlock_process(new);
-    return cap;
+    return 0;
 }
 
-// clone_capability(pid_t, capability_t, capability_t*) -> int
-// Clones a capability. Returns 0 on success and 1 if the pid doesn't match or the capability is invalid.
-int clone_capability(pid_t pid, capability_t original, capability_t* new) {
-    // TODO
+// clone_capability(pid_t, capability_t) -> capability_t
+// Clones a capability. Returns -1 on failure.
+capability_t clone_capability(pid_t pid, capability_t original) {
+    process_t* process = get_process(pid);
+
+    if (process == NULL || process->channels_len <= original) {
+        unlock_process(process);
+        return -1;
+    }
+    process_channel_t* channel = process->channels[original];
+
+    if (channel == NULL || channel->recipient == NULL || !channel->recipient->allowed.capability) {
+        unlock_process(process);
+        return -1;
+    }
+
+    process_t* paired = get_process(channel->recipient_pid);
+    capability_t a, b;
+    create_capability(&a, process, &b, paired, false, false);
+    enqueue_message_to_channel(original, pid, (process_message_t) {
+        .type = 7,
+        .source = pid,
+        .data = b,
+        .metadata = 0,
+    });
+    return a;
 }
 
 // enqueue_message_to_channel(capability_t, pid_t, process_message_t) -> int
@@ -871,6 +876,11 @@ int enqueue_message_to_channel(capability_t capability, pid_t pid, process_messa
                     console_printf("invalid child kill code %lx\n", message.metadata);
                     break;
             }
+            break;
+
+        // Capability
+        case 7:
+            allowed = true;
             break;
 
         // Everything else is invalid

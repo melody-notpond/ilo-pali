@@ -18,6 +18,11 @@ typedef struct {
     uint64_t physical;
 } virtual_physical_pair_t;
 
+typedef struct {
+    pid_t pid;
+    capability_t capability;
+} child_process_t;
+
 // uart_write(char* data, size_t length) -> void
 // Writes to the uart port.
 void uart_write(char* s, size_t length);
@@ -51,10 +56,10 @@ pid_t getpid();
 // Sleeps for the given amount of time. Returns the current time. Does not interrupt receive handlers or interrupt handlers. If the sleep time passed in is 0, then the syscall returns immediately.
 time_t sleep(uint64_t seconds, uint64_t micros);
 
-// spawn(char*, size_t, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
-// Spawns a process with the given executable binary. Returns a pid of -1 on failure.
+// spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size) -> child_process_t child
+// Spawns a process with the given executable binary. Returns a pid and capability of -1 on failure.
 // The executable may be a valid elf file. All data will be copied over to a new set of pages.
-uint64_t spawn_process(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t arg_size, capability_t* capability);
+child_process_t spawn_process(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t arg_size);
 
 // kill(pid_t pid) -> int status
 // Kills the given process. Returns 0 on success, 1 if the process does not exist, and 2 if insufficient permissions.
@@ -101,9 +106,9 @@ int recv(bool block, capability_t channel, uint64_t* pid, int* type, uint64_t* d
 //      Determines the size of the value. 0 = u8, 6 = u64
 void lock(void* ref, int type, uint64_t value);
 
-// spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
+// spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size) -> child_process_t thread
 // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
-uint64_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* args, size_t arg_size, capability_t* capability);
+child_process_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* args, size_t arg_size);
 
 // subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void
 // Subscribes to an interrupt.

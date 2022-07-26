@@ -30,8 +30,8 @@ void _start() {
     );
 
     uart_printf("uwud started\n");
-    capability_t cap;
-    spawn_thread(thread, NULL, 0, &cap);
+    child_process_t child = spawn_thread(thread, NULL, 0);
+    capability_t cap = child.capability;
     uart_printf("spawned thread\n");
     //send(true, cap, 4, 69, 0);
     uint64_t exit_code;

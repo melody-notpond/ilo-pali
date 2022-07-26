@@ -331,8 +331,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
-                    // Spawns a process with the given executable binary. Returns a pid of -1 on failure.
+                    // spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size, uint64_t cap_enables) -> child_process_t child
+                    // Spawns a process with the given executable binary. Returns a pid and capability of -1 on failure.
                     // The executable may be a valid elf file. All data will be copied over to a new set of pages.
                     case 6: {
                         char* name = (void*) trap->xs[REGISTER_A1];
@@ -341,7 +341,6 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t exe_size = trap->xs[REGISTER_A4];
                         void* args = (void*) trap->xs[REGISTER_A5];
                         size_t args_size = trap->xs[REGISTER_A6];
-                        capability_t* capability = (void*) trap->xs[REGISTER_A7];
 
                         if (name_size > PROCESS_NAME_SIZE)
                             name_size = PROCESS_NAME_SIZE;
@@ -355,17 +354,20 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         process_t* child = spawn_process_from_elf(name, name_size, &elf, 2, args, args_size);
                         if (child == NULL) {
                             trap->xs[REGISTER_A0] = -1;
+                            trap->xs[REGISTER_A1] = -1;
                             break;
                         }
 
-                        if (capability != NULL && child != NULL) {
+                        capability_t capability = -1;
+                        if (child != NULL) {
                             capability_t b;
-                            create_capability(capability, get_process(trap->pid), &b, child, false, true);
+                            create_capability(&capability, get_process(trap->pid), &b, child, false, true);
                         } else {
                             unlock_process(child);
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;
+                        trap->xs[REGISTER_A1] = capability;
                         break;
                     }
 
@@ -614,27 +616,29 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
+                    // spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size) -> child_process_t thread
                     // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
                     case 10: {
                         void* func = (void*) trap->xs[REGISTER_A1];
                         void* data = (void*) trap->xs[REGISTER_A2];
                         size_t size = trap->xs[REGISTER_A3];
-                        capability_t* capability = (void*) trap->xs[REGISTER_A4];
                         process_t* child = spawn_thread_from_func(trap->pid, func, 2, data, size);
                         if (child == NULL) {
                             trap->xs[REGISTER_A0] = -1;
+                            trap->xs[REGISTER_A1] = -1;
                             break;
                         }
 
-                        if (capability != NULL && child != NULL) {
+                        capability_t capability = -1;
+                        if (child != NULL) {
                             capability_t b;
-                            create_capability(capability, get_process(trap->pid), &b, child, false, true);
+                            create_capability(&capability, get_process(trap->pid), &b, child, false, true);
                         } else {
                             unlock_process(child);
                         }
 
                         trap->xs[REGISTER_A0] = child->pid;
+                        trap->xs[REGISTER_A1] = capability;
                         break;
                     }
 

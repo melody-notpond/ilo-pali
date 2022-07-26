@@ -54,11 +54,15 @@ time_t sleep(uint64_t seconds, uint64_t micros) {
     };
 }
 
-// spawn(char*, size_t, void* exe, size_t exe_size, void* args, size_t args_size, capability_t* capability) -> pid_t child
-// Spawns a process with the given executable binary. Returns a pid of -1 on failure.
+// spawn(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t args_size) -> child_process_t child
+// Spawns a process with the given executable binary. Returns a pid and capability of -1 on failure.
 // The executable may be a valid elf file. All data will be copied over to a new set of pages.
-uint64_t spawn_process(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t arg_size, capability_t* capability) {
-    return syscall(6, (uint64_t) name, (uint64_t) name_size, (uint64_t) exe, exe_size, (uint64_t) args, arg_size, (uint64_t) capability).first;
+child_process_t spawn_process(char* name, size_t name_size, void* exe, size_t exe_size, void* args, size_t arg_size) {
+    dual_t dual = syscall(6, (uint64_t) name, (uint64_t) name_size, (uint64_t) exe, exe_size, (uint64_t) args, arg_size, 0);
+    return (child_process_t) {
+        .pid = dual.first,
+        .capability = dual.second,
+    };
 }
 
 // send(bool block, capability_t channel, int type, uint64_t data, uint64_t metadata) -> int status
@@ -95,10 +99,14 @@ void lock(void* ref, int type, uint64_t value) {
     syscall(9, (uint64_t) ref, type, value, 0, 0, 0, 0);
 }
 
-// spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size, capability_t*) -> pid_t thread
+// spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* data, size_t size) -> child_process_t thread
 // Spawns a thread (a process sharing the same memory as the current process) that executes the given function. Returns -1 on failure.
-uint64_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* args, size_t arg_size, capability_t* capability) {
-    return syscall(10, (uint64_t) func, (uint64_t) args, arg_size, (uint64_t) capability, 0, 0, 0).first;
+child_process_t spawn_thread(void (*func)(void*, size_t, uint64_t, uint64_t), void* args, size_t arg_size) {
+    dual_t dual = syscall(10, (uint64_t) func, (uint64_t) args, arg_size, 0, 0, 0, 0);
+    return (child_process_t) {
+        .pid = dual.first,
+        .capability = dual.second,
+    };
 }
 
 // subscribe_to_interrupt(uint32_t id, capability_t* capability) -> void

@@ -22,6 +22,8 @@ atomic_bool interrupt_subscribers_lock = false;
 
 extern void hart_suspend_resume(uint64_t hartid, trap_t* trap);
 
+const int PROCESS_QUANTUM = 10000;
+
 // timer_switch(trap_t*) -> void
 // Switches to a new process, or suspends the hart if no process is available.
 void timer_switch(trap_t* trap) {
@@ -34,7 +36,7 @@ void timer_switch(trap_t* trap) {
     }
 
     time_t next = get_time();
-    next.micros += 10;
+    next.micros += PROCESS_QUANTUM;
     while (next.micros >= 1000000) {
         next.seconds += 1;
         next.micros -= 1000000;
@@ -675,21 +677,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         int perms = trap->xs[REGISTER_A3];
                         capability_t cap = trap->xs[REGISTER_A4];
 
+                        if (!capability_connects_to_initd(cap, trap->pid)) {
+                            console_printf("uwu\n");
+                            trap->xs[REGISTER_A0] = 0;
+                            trap->xs[REGISTER_A1] = 0;
+                            break;
+                        }
+
                         process_t* process = get_process(trap->pid);
-                        if (process->thread_source != 0 && trap->pid != 0) {
-                            trap->xs[REGISTER_A0] = 0;
-                            trap->xs[REGISTER_A1] = 0;
-                            unlock_process(process);
-                            break;
-                        }
-
-                        if (process->thread_source != 0 && trap->pid != 0 && !capability_connects_to_initd(cap, trap->pid)) {
-                            trap->xs[REGISTER_A0] = 0;
-                            trap->xs[REGISTER_A1] = 0;
-                            unlock_process(process);
-                            break;
-                        }
-
                         int flags = 0;
 
                         if ((perms & 0x03) == 0x03 || (perms & 0x07) == 0 || count == 0) {
@@ -726,6 +721,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
                             if (page_holder != process)
                                 unlock_process(page_holder);
+                            unlock_process(process);
                         } else {
                             if (addr + count * PAGE_SIZE < get_memory_start()) {
                                 process_t* page_holder = process->thread_source == (uint64_t) -1 ? process : get_process(process->thread_source);

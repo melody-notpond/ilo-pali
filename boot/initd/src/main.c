@@ -33,7 +33,8 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
     int type;
     uint64_t data;
     uint64_t meta;
-    while (!recv(true, &capability, &pid, &type, &data, &meta)) {
+    while (!recv(true, capability, &pid, &type, &data, &meta)) {
+            uart_printf("nya\n");
         if (type == MSG_TYPE_DATA) {
             char buffer[meta + 1];
             memcpy(buffer, (void*) data, meta);
@@ -46,11 +47,12 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
                 continue;
             }
 
-            capability_t cap;
-            pid_t pid = spawn_process((void*) data, meta, elf, size, NULL, 0, &cap);
-            send(true, &capability, MSG_TYPE_INT, pid, 0);
+            child_process_t child = spawn_process((void*) data, meta, elf, size, NULL, 0);
+            capability_t cap = child.capability;
+            pid_t pid = child.pid;
+            send(true, capability, MSG_TYPE_INT, pid, 0);
             transfer_capability(&cap, pid);
-            send(true, &capability, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
+            //send(true, capability, MSG_TYPE_INT, cap & 0xffffffffffffffff, cap >> 64);
             dealloc_page((void*) data, 1);
         } else if (type == MSG_TYPE_SIGNAL) {
             // driver -> initd protocol:
@@ -83,14 +85,14 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
                             if (filesystem_handler.cap != 0) {
                                 capability_t cap1;
                                 capability_t cap2;
-                                create_capability(&cap1, &cap2);
-                                send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
+                                //create_capability(&cap1, &cap2);
+                                send(true, filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
                                 transfer_capability(&cap1, filesystem_handler.pid);
-                                send(true, &filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
+                                //send(true, filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
 
-                                send(true, &capability, MSG_TYPE_SIGNAL, 0, 0);
+                                send(true, capability, MSG_TYPE_SIGNAL, 0, 0);
                                 transfer_capability(&cap2, pid);
-                                send(true, &capability, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
+                                //send(true, capability, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
                             }
 
                             mutex_unlock(&guard);
@@ -103,24 +105,24 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
                                 filesystem_handler.cap = capability;
                                 filesystem_handler.pid = pid;
 
-                                send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 0, 0);
+                                send(true, filesystem_handler.cap, MSG_TYPE_SIGNAL, 0, 0);
                                 mutex_guard_t guard = mutex_lock(block_handlers);
                                 vec_t* vec = guard.data;
                                 size_t i = 0;
                                 for (struct driver* driver = vec_get(vec, i); driver != NULL; driver = vec_get(vec, ++i)) {
                                     capability_t cap1;
                                     capability_t cap2;
-                                    create_capability(&cap1, &cap2);
-                                    send(true, &filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
+                                    //create_capability(&cap1, &cap2);
+                                    send(true, filesystem_handler.cap, MSG_TYPE_SIGNAL, 1, 0);
                                     transfer_capability(&cap1, filesystem_handler.pid);
-                                    send(true, &filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
+                                    //send(true, filesystem_handler.cap, MSG_TYPE_INT, cap1 & 0xffffffffffffffff, cap1 >> 64);
 
-                                    send(true, &driver->cap, MSG_TYPE_SIGNAL, 0, 0);
+                                    send(true, driver->cap, MSG_TYPE_SIGNAL, 0, 0);
                                     transfer_capability(&cap2, driver->pid);
-                                    send(true, &driver->cap, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
+                                    //send(true, driver->cap, MSG_TYPE_INT, cap2 & 0xffffffffffffffff, cap2 >> 64);
                                 }
                                 mutex_unlock(&guard);
-                            } else send(true, &capability, MSG_TYPE_SIGNAL, 0, 1);
+                            } else send(true, capability, MSG_TYPE_SIGNAL, 0, 1);
                             break;
                         }
 
@@ -135,7 +137,7 @@ void handle_driver(void* args, size_t _size, uint64_t _a, uint64_t _b) {
         }
     }
 
-    kill(getpid());
+    exit(0);
 }
 
 void _start(void* fdt) {
@@ -170,7 +172,6 @@ void _start(void* fdt) {
         .bytes = bytes,
     };
 
-    capability_t cap;
     bool spawned_fsd = false;
     for (str_t part = str_split(module_maps, S("\n"), STREMPTY); part.bytes != NULL; part = str_split(module_maps, S("\n"), part)) {
         str_t device = str_split(part, S(" "), STREMPTY);
@@ -191,14 +192,16 @@ void _start(void* fdt) {
                 if (module_elf == NULL)
                     break;
             }
-            pid_t pid = spawn_process((char*) module.bytes, module.len, module_elf, module_size, NULL, 0, &cap);
+            child_process_t child = spawn_process((char*) module.bytes, module.len, module_elf, module_size, NULL, 0);
+            capability_t cap = child.capability;
+            pid_t pid = child.pid;
             struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
             args->cap = cap;
             args->pid = pid;
             args->initrd = &initrd;
             while (1) {
-                pid_t pid = spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
-                if (!transfer_capability(&cap, pid))
+                child_process_t child = spawn_thread(handle_driver, args, sizeof(struct thread_args));
+                if (!transfer_capability(&cap, child.pid))
                     break;
             }
         } else {
@@ -222,14 +225,16 @@ void _start(void* fdt) {
                 p[0] = be_to_le(64, reg.data);
                 p[1] = be_to_le(64, reg.data + 8); // TODO: use #address-cells and #size-cells
                 p[2] = be_to_le(interrupts.len * 8, interrupts.data);
-                pid_t pid = spawn_process((char*) module.bytes, module.len, module_elf, module_size, p, sizeof(p), &cap);
+                child_process_t child = spawn_process((char*) module.bytes, module.len, module_elf, module_size, p, sizeof(p));
+                capability_t cap = child.capability;
+                pid_t pid = child.pid;
                 struct thread_args* args = alloc_page(1, PERM_READ | PERM_WRITE);
                 args->cap = cap;
                 args->pid = pid;
                 args->initrd = &initrd;
                 while (1) {
-                    pid_t pid = spawn_thread(handle_driver, args, sizeof(struct thread_args), NULL);
-                    if (!transfer_capability(&cap, pid))
+                    child_process_t child = spawn_thread(handle_driver, args, sizeof(struct thread_args));
+                    if (!transfer_capability(&cap, child.pid))
                         break;
                 }
             }

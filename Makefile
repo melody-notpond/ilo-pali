@@ -1,8 +1,9 @@
 TARGET = riscv64-unknown-elf
-CC     = $(TARGET)-gcc
+CC     = clang
 GDB    = $(TARGET)-gdb
 EMU    = qemu-system-riscv64
 CORES  = 4
+SUPER  = doas
 
 CODE = src/
 
@@ -34,10 +35,10 @@ boot: boot_dir lib
 	cd boot/fsd/ && cargo build --release
 	cp boot/fsd/target/riscv64gc-unknown-none-elf/release/fsd build/boot/
 	$(MAKE) -C boot/uwud/
-	#$(MAKE) -C boot/initd/
-	#$(MAKE) -C boot/virtd/
+	$(MAKE) -C boot/initd/
+	$(MAKE) -C boot/virtd/
 	#$(MAKE) -C boot/virtblock/
-	#$(MAKE) -C boot/virtgpu/
+	$(MAKE) -C boot/virtgpu/
 	cp boot/maps build/boot/
 
 root: root_dir lib
@@ -74,9 +75,9 @@ idisc: boot
 	dd if=/dev/zero of=build/initrd bs=4M count=3
 	mkfs.fat -F 16 -n INITRD build/initrd
 	mkdir -p mnt_boot
-	sudo mount build/initrd mnt_boot/
-	sudo cp build/boot/* mnt_boot/
-	sudo umount mnt_boot
+	$(SUPER) mount build/initrd mnt_boot/
+	$(SUPER) cp build/boot/* mnt_boot/
+	$(SUPER) umount mnt_boot
 
 rdisc: root
 	dd if=/dev/zero of=build/root.iso bs=4M count=256

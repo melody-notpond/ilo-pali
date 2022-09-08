@@ -13,6 +13,7 @@ typedef struct {
     pid_t pid;
 } trap_t;
 */
+.align 4
 handle_interrupt:
     # Save registers
     csrrw t6, sscratch, t6

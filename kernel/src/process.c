@@ -74,7 +74,7 @@ static inline void LOCK_RELEASE_PROCESSES() {
 process_t* get_process(pid_t pid) {
     uint64_t ra;
     asm volatile("mv %0, ra" : "=r" (ra));
-    //console_printf("get_process called from 0x%lx\n", ra);
+    //console_printf("get_process(0x%lx) called from 0x%lx\n", pid, ra);
 
     LOCK_READ_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
@@ -648,7 +648,6 @@ capability_t transfer_capability(capability_t capability, pid_t pid, capability_
         return -1;
     }
     process_channel_t* channel = process->channels[capability];
-    process->channels[capability] = NULL;
 
     if (channel == NULL || channel->recipient == NULL) {
         unlock_process(process);
@@ -661,7 +660,13 @@ capability_t transfer_capability(capability_t capability, pid_t pid, capability_
         return -1;
     }
 
+    if (pid == dest_channel->recipient_pid) {
+        unlock_process(process);
+        return -1;
+    }
+
     process_t* new = get_process(dest_channel->recipient_pid);
+    process->channels[capability] = NULL;
 
     capability_t cap = insert_capability_in_process(false, new, channel);
 
@@ -949,8 +954,10 @@ int dequeue_message_from_channel(pid_t pid, capability_t capability, process_mes
     }
 
     process_channel_t* channel = process->channels[capability];
-    if (channel == NULL)
+    if (channel == NULL) {
+        unlock_process(process);
         return 3;
+    }
 
     if (channel->len == 0) {
         unlock_process(process);

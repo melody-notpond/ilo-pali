@@ -92,14 +92,14 @@ void kinit(uint64_t hartid, void* fdt) {
     init_processes();
 
     size_t size;
-    void* data = read_file_full(&fat, "uwud", &size);
+    void* data = read_file_full(&fat, "initd", &size);
     elf_t elf = verify_elf(data, size);
     if (elf.header == NULL) {
         console_puts("[kinit] failed to verify initd elf file\n");
         while(1);
     }
 
-    process_t* initd = spawn_process_from_elf("uwud", 5, &elf, 2, NULL, 0);
+    process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, NULL, 0);
     free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {

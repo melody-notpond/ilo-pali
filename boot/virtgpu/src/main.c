@@ -41,7 +41,7 @@ void perform_gpu_action(volatile virtio_mmio_t* mmio, virtio_queue_t* controlq, 
     mmio->queue_notify = 0;
 }
 
-void send_and_flush_framebuffer(volatile virtio_mmio_t* mmio, alloc_t* allocator, phalloc_t* phalloc, virtio_queue_t* controlq, capability_t* cap, struct virtio_gpu_rect r, uint32_t resource_id) {
+void send_and_flush_framebuffer(volatile virtio_mmio_t* mmio, alloc_t* allocator, phalloc_t* phalloc, virtio_queue_t* controlq, capability_t cap, struct virtio_gpu_rect r, uint32_t resource_id) {
     // Transfer resource to host
     struct virtio_gpu_transfer_to_host_2d to_host = {
         .hdr = {
@@ -83,8 +83,8 @@ void send_and_flush_framebuffer(volatile virtio_mmio_t* mmio, alloc_t* allocator
     dealloc(allocator, phalloc_get_virtual(phalloc, (uint64_t) d->addr));
 }
 
-void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) {
-    capability_t superdriver = ((capability_t) cap_high) << 64 | (capability_t) cap_low;
+void _start(void* _args, size_t _arg_size) {
+    capability_t superdriver = 0;
 
     pid_t pid;
     int type;
@@ -93,11 +93,11 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     uart_printf("spawned virtio gpu driver\n");
 
     // Get initd capability
-    recv(true, &superdriver, &pid, &type, &data, &meta);
-    capability_t initd = (capability_t) meta << 64 | (capability_t) data;
+    recv(true, superdriver, &pid, &type, &data, &meta);
+    capability_t initd = data;
 
     // Get interrupt id
-    recv(true, &superdriver, &pid, &type, &data, &meta);
+    recv(true, superdriver, &pid, &type, &data, &meta);
     subscribe_to_interrupt(data, &superdriver);
 
     virtio_queue_t* controlq;
@@ -105,7 +105,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     void* input[] = { (void*) &controlq, (void*) &cursorq, (void*) &initd };
 
     // Get mmio address
-    recv(true, &superdriver, &pid, &type, &data, &meta);
+    recv(true, superdriver, &pid, &type, &data, &meta);
     volatile virtio_mmio_t* mmio = (void*) data;
     switch (virtio_init_mmio(input, (void*) mmio, 16, features_callback, setup_callback)) {
         case VIRTIO_MMIO_INIT_STATE_SUCCESS:
@@ -113,23 +113,23 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
             break;
         case VIRTIO_MMIO_INIT_STATE_INVALID_MMIO:
             uart_printf("invalid mmio passed in\n");
-            kill(getpid());
+            exit(1);
             break;
         case VIRTIO_MMIO_INIT_STATE_DEVICE_ID_0:
             uart_printf("no device detected\n");
-            kill(getpid());
+            exit(1);
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_DEVICE:
             uart_printf("device is not a gpu\n");
-            kill(getpid());
+            exit(1);
             break;
         case VIRTIO_MMIO_INIT_STATE_UNSUPPORTED_FEATURES:
             uart_printf("unsupported features passed in\n");
-            kill(getpid());
+            exit(1);
             break;
         case VIRTIO_MMIO_INIT_STATE_UNKNOWN_ERROR:
             uart_printf("an unknown error occurred\n");
-            kill(getpid());
+            exit(1);
             break;
     }
 
@@ -145,7 +145,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     };
 
     perform_gpu_action(mmio, controlq, &allocator, &header, sizeof(header), sizeof(struct virtio_gpu_resp_display_info));
-    recv(true, &superdriver, NULL, &type, &data, NULL);
+    recv(true, superdriver, NULL, &type, &data, NULL);
     volatile virtio_descriptor_t* d = virtqueue_pop_used(controlq);
     struct virtio_gpu_resp_display_info* info = NULL;
     if (type == 4) {
@@ -154,11 +154,11 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         info = phalloc_get_virtual(&phalloc, (uint64_t) d->addr);
         if (info->hdr.type != VIRTIO_GPU_RESP_OK_DISPLAY_INFO) {
             uart_printf("[gpu driver] failed to get display info. quitting");
-            kill(getpid());
+            exit(1);
         } else uart_printf("[gpu driver] got display info; size is %ix%i\n", info->pmodes[0].r.width, info->pmodes[0].r.height);
     } else {
         uart_printf("oh no\n");
-        kill(getpid());
+        exit(1);
     }
 
     // Create 2D resource
@@ -176,7 +176,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     };
     perform_gpu_action(mmio, controlq, &allocator, &create, sizeof(create), sizeof(struct virtio_gpu_ctrl_hdr));
 
-    recv(true, &superdriver, NULL, &type, &data, NULL);
+    recv(true, superdriver, NULL, &type, &data, NULL);
     d = virtqueue_pop_used(controlq);
     if (type == 4) {
         dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
@@ -184,12 +184,12 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         struct virtio_gpu_ctrl_hdr* header = phalloc_get_virtual(&phalloc, (uint64_t) d->addr);
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
             uart_printf("[gpu driver] failed to create resource. quitting");
-            kill(getpid());
+            exit(1);
         } else uart_printf("[gpu driver] created resource\n");
         dealloc(&allocator, header);
     } else {
         uart_printf("oh no\n");
-        kill(getpid());
+        exit(1);
     }
 
     // Attach frame buffer
@@ -213,7 +213,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     };
     perform_gpu_action(mmio, controlq, &allocator, backing, backing_size, sizeof(struct virtio_gpu_ctrl_hdr));
 
-    recv(true, &superdriver, NULL, &type, &data, NULL);
+    recv(true, superdriver, NULL, &type, &data, NULL);
     d = virtqueue_pop_used(controlq);
     if (type == 4) {
         dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
@@ -221,12 +221,12 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         struct virtio_gpu_ctrl_hdr* header = phalloc_get_virtual(&phalloc, (uint64_t) d->addr);
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
             uart_printf("[gpu driver] failed to attach framebuffer. quitting");
-            kill(getpid());
+            exit(1);
         } else uart_printf("[gpu driver] attached framebuffer\n");
         dealloc(&allocator, header);
     } else {
         uart_printf("oh no\n");
-        kill(getpid());
+        exit(1);
     }
     dealloc(&allocator, backing);
 
@@ -244,7 +244,7 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
     };
     perform_gpu_action(mmio, controlq, &allocator, &scanout, sizeof(scanout), sizeof(struct virtio_gpu_ctrl_hdr));
 
-    recv(true, &superdriver, NULL, &type, &data, NULL);
+    recv(true, superdriver, NULL, &type, &data, NULL);
     d = virtqueue_pop_used(controlq);
     if (type == 4) {
         dealloc(&allocator, phalloc_get_virtual(&phalloc, (uint64_t) d->addr));
@@ -252,19 +252,19 @@ void _start(void* _args, size_t _arg_size, uint64_t cap_high, uint64_t cap_low) 
         struct virtio_gpu_ctrl_hdr* header = phalloc_get_virtual(&phalloc, (uint64_t) d->addr);
         if (header->type != VIRTIO_GPU_RESP_OK_NODATA) {
             uart_printf("[gpu driver] failed to set scanout. quitting");
-            kill(getpid());
+            exit(1);
         } else uart_printf("[gpu driver] set scanout. screen is initialised!\n");
         dealloc(&allocator, header);
     } else {
         uart_printf("oh no\n");
-        kill(getpid());
+        exit(1);
     }
 
     for (size_t i = 0; i < framebuffer_size / sizeof(uint32_t); i++) {
         framebuffer[i] = 0xFFFF00FF;
     }
 
-    send_and_flush_framebuffer(mmio, &allocator, &phalloc, controlq, &superdriver, info->pmodes[0].r, 1);
+    send_and_flush_framebuffer(mmio, &allocator, &phalloc, controlq, superdriver, info->pmodes[0].r, 1);
 
     while (1);
 }

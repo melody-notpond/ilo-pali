@@ -117,8 +117,8 @@ void subscribe_to_interrupt(uint32_t id, capability_t* capability) {
 
 // alloc_pages_physical(size_t count, int permissions, capability_t* capability) -> (void* virtual, intptr_t physical)
 // Allocates `count` pages of memory that are guaranteed to be consecutive in physical memory. Returns (NULL, 0) on failure. Write and execute cannot both be set at the same time. If capability is NULL, the syscall returns failure. If the capability is invalid, the process is killed.
-virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permissions, capability_t* capability) {
-    dual_t dual = syscall(12, (uint64_t) addr, count, permissions, (uint64_t) capability, 0, 0, 0);
+virtual_physical_pair_t alloc_pages_physical(void* addr, size_t count, int permissions, capability_t capability) {
+    dual_t dual = syscall(12, (uint64_t) addr, count, permissions, capability, 0, 0, 0);
     return (virtual_physical_pair_t) {
         .virtual_ = (void*) dual.first,
         .physical = dual.second,

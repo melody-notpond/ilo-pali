@@ -1,7 +1,7 @@
 TARGET = riscv64-unknown-elf
 CC     = $(TARGET)-gcc
 AR	   = $(TARGET)-ar
-CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -nostdlib -g -Wall -Wextra -I../../../include/
+CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -nostdlib -g -Wall -Wextra -I../../include/
 ifeq ($(CC),clang)
 	CFLAGS += -target $(TARGET) -mno-relax -Wno-unused-command-line-argument
 	AR = llvm-ar
@@ -11,11 +11,11 @@ CODE = src/
 
 .PHONY: all clean
 
-all: $(CODE)*.c
+all: $(CODE)*.c $(CODE)*.s
 	$(CC) $(CFLAGS) -c $?
-	$(AR) rc libjoin.a *.o
+	$(AR) rc libc.a *.o
 	-rm *.o
-	mv libjoin.a ../../../build/lib/
+	mv libc.a ../../build/lib/
 
 clean:
 	-rm *.o *.a

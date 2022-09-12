@@ -23,7 +23,6 @@ all: kernel boot root
 
 clean:
 	-rm -r build/
-	cd boot/fsd && cargo clean
 
 kernel: build
 	$(MAKE) -C kernel/
@@ -32,14 +31,7 @@ run:
 	$(EMU) $(EFLAGS) -drive if=none,format=raw,file=build/root.iso,id=root -kernel build/kernel -initrd build/initrd
 
 boot: boot_dir lib
-	cd boot/fsd/ && cargo build --release
-	cp boot/fsd/target/riscv64gc-unknown-none-elf/release/fsd build/boot/
-	$(MAKE) -C boot/uwud/
 	$(MAKE) -C boot/initd/
-	$(MAKE) -C boot/virtd/
-	#$(MAKE) -C boot/virtblock/
-	$(MAKE) -C boot/virtgpu/
-	cp boot/maps build/boot/
 
 root: root_dir lib
 	cp root/test.txt build/root/
@@ -48,17 +40,7 @@ root_dir:
 	mkdir -p build/root/
 
 lib: lib_dir
-	$(MAKE) -C lib/fat/
-	$(MAKE) -C lib/fdt/
-	$(MAKE) -C lib/std/alloc/
-	$(MAKE) -C lib/std/core/
-	$(MAKE) -C lib/std/format/
-	$(MAKE) -C lib/std/iter/
-	$(MAKE) -C lib/std/join/
-	$(MAKE) -C lib/std/sync/
-	$(MAKE) -C lib/std/syscall/
-	$(MAKE) -C lib/phalloc/
-	$(MAKE) -C lib/virtio/
+	$(MAKE) -C lib/c/
 
 lib_dir: build
 	mkdir -p build/lib/

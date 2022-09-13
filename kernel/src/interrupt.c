@@ -149,11 +149,69 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
             case 8:
                 trap->pc += 4;
                 switch (trap->xs[REGISTER_A0]) {
+                    // uart_puts(char* message) -> void
+                    // Writes a message to the UART port.
                     case 0: {
                         char* message = (char*) trap->xs[REGISTER_A1];
                         process_t* process = get_process(trap->pid);
                         console_printf("[process with PID 0x%lx (%s)] %s\n", trap->pid, process->name, message);
                         unlock_process(process);
+                        break;
+                    }
+
+                    // page_alloc(size_t page_count, int permissions) -> void*
+                    // Allocates a page with the given permissions.
+                    case 1: {
+                        size_t page_count = trap->xs[REGISTER_A1];
+                        int permissions = trap->xs[REGISTER_A2];
+
+                        int perms = 0;
+                        if (permissions & 2)
+                            perms |= MMU_BIT_WRITE;
+                        else perms |= MMU_BIT_EXECUTE;
+                        if (permissions & 4)
+                            perms |= MMU_BIT_READ;
+
+                        mmu_level_1_t* mmu = get_mmu();
+                        process_t* process = get_process(trap->pid);
+                        void* result = process->last_virtual_page;
+                        for (size_t i = 0; i < page_count; i++) {
+                            mmu_alloc(mmu, process->last_virtual_page, perms | MMU_BIT_VALID | MMU_BIT_USER);
+                            process->last_virtual_page += PAGE_SIZE;
+                        }
+                        unlock_process(process);
+                        trap->xs[REGISTER_A0] = (uint64_t) result;
+                        break;
+                    }
+
+                    // page_perms(void* page, int permissions) -> void
+                    // Changes the page's permissions.
+                    case 2: {
+                        void* page = (void*) trap->xs[REGISTER_A1];
+                        size_t page_count = trap->xs[REGISTER_A2];
+                        int permissions = trap->xs[REGISTER_A3];
+
+                        int perms = 0;
+                        if (permissions & 2)
+                            perms |= MMU_BIT_WRITE;
+                        else perms |= MMU_BIT_EXECUTE;
+                        if (permissions & 4)
+                            perms |= MMU_BIT_READ;
+
+                        mmu_level_1_t* mmu = get_mmu();
+                        for (size_t i = 0; i < page_count; i++) {
+                            mmu_change_flags(mmu, page + PAGE_SIZE * i, perms | MMU_BIT_VALID | MMU_BIT_USER);
+                        }
+                        break;
+                    }
+
+                    // page_dealloc(void* page) -> void
+                    // Deallocates a page.
+                    case 3: {
+                        void* page = (void*) trap->xs[REGISTER_A1];
+                        size_t page_count = trap->xs[REGISTER_A2];
+                        mmu_level_1_t* mmu = get_mmu();
+                        dealloc_pages(mmu_remove(mmu, page), page_count);
                         break;
                     }
 

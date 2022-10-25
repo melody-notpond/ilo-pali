@@ -439,8 +439,6 @@ pid_t get_next_waiting_process(pid_t pid) {
             time_t now = get_time();
 
             if ((wait.seconds == now.seconds && wait.micros <= now.micros) || (wait.seconds < now.seconds)) {
-                process->xs[REGISTER_A0] = now.seconds;
-                process->xs[REGISTER_A1] = now.micros;
                 mutating_jobs_queue = false;
                 process->state = PROCESS_STATE_WAIT;
                 unlock_process(process);

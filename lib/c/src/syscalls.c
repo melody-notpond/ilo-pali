@@ -28,3 +28,9 @@ int page_perms(void* page, size_t page_count, int permissions) {
 int page_dealloc(void* page, size_t page_count) {
     return syscall(3, (intptr_t) page,page_count, 0, 0, 0, 0);
 }
+
+// sleep(uint64_t seconds, uint64_t micros) -> void
+// Sleeps for the given amount of time.
+void sleep(uint64_t seconds, uint64_t micros) {
+    syscall(4, seconds, micros, 0, 0, 0, 0);
+}

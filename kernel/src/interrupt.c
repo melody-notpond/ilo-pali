@@ -233,6 +233,34 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // sleep(uint64_t seconds, uint64_t micros) -> void
+                    // Sleeps for the given amount of time.
+                    case 4: {
+                        uint64_t seconds = trap->xs[REGISTER_A1];
+                        uint64_t micros = trap->xs[REGISTER_A2];
+                        if (seconds == 0 && micros == 0) {
+                            break;
+                        }
+
+                        time_t now = get_time();
+                        micros += now.micros;
+                        seconds += now.seconds;
+                        if (micros >= 1000000) {
+                            micros -= 1000000;
+                            seconds += 1;
+                        }
+
+                        process_t* process = get_process(trap->pid);
+                        process->wake_on_time = (time_t) {
+                            .seconds = seconds,
+                            .micros = micros,
+                        };
+                        process->state = PROCESS_STATE_BLOCK_SLEEP;
+                        unlock_process(process);
+                        timer_switch(trap);
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                         break;

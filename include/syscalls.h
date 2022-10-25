@@ -28,4 +28,8 @@ int page_perms(void* page, size_t page_count, int permissions);
 // Deallocates a page. Returns 0 if successful and 1 if not.
 int page_dealloc(void* page, size_t page_count);
 
+// sleep(uint64_t seconds, uint64_t micros) -> void
+// Sleeps for the given amount of time.
+void sleep(uint64_t seconds, uint64_t micros);
+
 #endif /* SYSCALL_H */

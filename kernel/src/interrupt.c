@@ -168,7 +168,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         int perms = 0;
                         if (permissions & 2)
                             perms |= MMU_BIT_WRITE;
-                        else perms |= MMU_BIT_EXECUTE;
+                        else if (permissions & 1)
+                            perms |= MMU_BIT_EXECUTE;
                         if (permissions & 4)
                             perms |= MMU_BIT_READ;
 
@@ -184,8 +185,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // page_perms(void* page, int permissions) -> void
-                    // Changes the page's permissions.
+                    // page_perms(void* page, size_t page_count, int permissions) -> int
+                    // Changes the page's permissions. Returns 0 if successful and 1 if not.
                     case 2: {
                         void* page = (void*) trap->xs[REGISTER_A1];
                         size_t page_count = trap->xs[REGISTER_A2];
@@ -194,24 +195,41 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         int perms = 0;
                         if (permissions & 2)
                             perms |= MMU_BIT_WRITE;
-                        else perms |= MMU_BIT_EXECUTE;
+                        else if (permissions & 1)
+                            perms |= MMU_BIT_EXECUTE;
                         if (permissions & 4)
                             perms |= MMU_BIT_READ;
 
                         mmu_level_1_t* mmu = get_mmu();
                         for (size_t i = 0; i < page_count; i++) {
+                            if ((mmu_walk(mmu, page + i * PAGE_SIZE) & (MMU_BIT_USER | MMU_BIT_VALID)) != (MMU_BIT_USER | MMU_BIT_VALID)) {
+                                trap->xs[REGISTER_A0] = 1;
+                                return trap;
+                            }
+                        }
+                        for (size_t i = 0; i < page_count; i++) {
                             mmu_change_flags(mmu, page + PAGE_SIZE * i, perms | MMU_BIT_VALID | MMU_BIT_USER);
                         }
+                        trap->xs[REGISTER_A0] = 0;
                         break;
                     }
 
-                    // page_dealloc(void* page) -> void
-                    // Deallocates a page.
+                    // page_dealloc(void* page, size_t page_count) -> int
+                    // Deallocates a page. Returns 0 if successful and 1 if not.
                     case 3: {
                         void* page = (void*) trap->xs[REGISTER_A1];
                         size_t page_count = trap->xs[REGISTER_A2];
                         mmu_level_1_t* mmu = get_mmu();
-                        dealloc_pages(mmu_remove(mmu, page), page_count);
+                        for (size_t i = 0; i < page_count; i++) {
+                            if ((mmu_walk(mmu, page + i * PAGE_SIZE) & (MMU_BIT_USER | MMU_BIT_VALID)) != (MMU_BIT_USER | MMU_BIT_VALID)) {
+                                trap->xs[REGISTER_A0] = 1;
+                                return trap;
+                            }
+                        }
+                        for (size_t i = 0; i < page_count; i++) {
+                            dealloc_pages(mmu_remove(mmu, page + i * PAGE_SIZE), i);
+                        }
+                        trap->xs[REGISTER_A0] = 0;
                         break;
                     }
 

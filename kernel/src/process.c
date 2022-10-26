@@ -6,6 +6,7 @@
 #include "opensbi.h"
 #include "process.h"
 #include "queue.h"
+#include "string.h"
 
 hashmap_t* processes;
 atomic_uint_fast64_t processes_lock = 0;
@@ -91,6 +92,18 @@ process_t* get_process(pid_t pid) {
     return process;
 }
 
+// get_process_unsafe(pid_t) -> process_t*
+// Gets the process associated with the pid without checking for mutex lock.
+process_t* get_process_unsafe(pid_t pid) {
+    process_t* process = hashmap_get(processes, &pid);
+    if (process == NULL)
+        return NULL;
+
+    process->mutex_lock = true;
+    return process;
+
+}
+
 // process_exists(pid_t) -> bool
 // Checks if the given pid has an associated process.
 bool process_exists(pid_t pid) {
@@ -109,9 +122,9 @@ void unlock_process(process_t* process) {
     LOCK_RELEASE_PROCESSES();
 }
 
-// spawn_process_from_elf(char*, size_t, elf_t*, size_t, void*, size_t) -> process_t*
+// spawn_process_from_elf(char*, size_t, elf_t*, size_t, size_t, char**) -> process_t*
 // Spawns a process using the given elf file. Returns NULL on failure.
-process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, void* args, size_t arg_size) {
+process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args) {
     if (elf->header->type != ELF_EXECUTABLE) {
         console_puts("ELF file is not executable\n");
         return NULL;
@@ -199,16 +212,46 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
     process.xs[REGISTER_FP] = process.xs[REGISTER_SP];
     process.last_virtual_page += PAGE_SIZE;
 
-    if (args != NULL && arg_size != 0) {
-        for (size_t i = 0; i < (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE; i += PAGE_SIZE) {
-            void* physical = mmu_alloc(top, process.last_virtual_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
-            memcpy(kernel_space_phys2virtual(physical), args + i, arg_size - i < PAGE_SIZE ? arg_size - i : PAGE_SIZE);
+    int offset = 0;
+    char** args_new = malloc(sizeof(char*) * argc);
+    char* physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
+    void* virtual = process.last_virtual_page;
+    process.last_virtual_page += PAGE_SIZE;
+    for (size_t arg_index = 0; arg_index < argc; arg_index++) {
+        args_new[arg_index] = virtual + offset;
+        for (size_t i = 0; args[arg_index][i]; i++, offset++) {
+            if (offset >= PAGE_SIZE) {
+                offset = 0;
+                physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
+                virtual = process.last_virtual_page;
+                process.last_virtual_page += PAGE_SIZE;
+            }
+            physical[offset] = args[arg_index][i];
         }
-
-        process.xs[REGISTER_A0] = (uint64_t) process.last_virtual_page;
-        process.xs[REGISTER_A1] = arg_size;
-        process.last_virtual_page += (arg_size + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE + PAGE_SIZE;
+        if (offset >= PAGE_SIZE) {
+            offset = 0;
+            physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
+            virtual = process.last_virtual_page;
+            process.last_virtual_page += PAGE_SIZE;
+        }
+        physical[offset++] = '\0';
     }
+
+    offset += (-offset) & (sizeof(void*) - 1);
+    void* first = virtual + offset;
+
+    for (size_t arg_index = 0; arg_index < argc; arg_index++, offset += sizeof(void*)) {
+        if (offset >= PAGE_SIZE) {
+            offset = 0;
+            physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
+            virtual = process.last_virtual_page;
+            process.last_virtual_page += PAGE_SIZE;
+        }
+        *((void**) (physical + offset)) = args_new[arg_index];
+    }
+
+    process.xs[REGISTER_A0] = argc;
+    process.xs[REGISTER_A1] = (uint64_t) first;
 
     if (name_size > PROCESS_NAME_SIZE)
         name_size = PROCESS_NAME_SIZE;

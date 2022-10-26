@@ -59,6 +59,10 @@ void init_processes();
 // Gets the process associated with the pid.
 process_t* get_process(pid_t pid);
 
+// get_process_unsafe(pid_t) -> process_t*
+// Gets the process associated with the pid without checking for mutex lock.
+process_t* get_process_unsafe(pid_t pid);
+
 // get_process(pid_t) -> bool
 // Checks if the given pid has an associated process.
 bool process_exists(pid_t pid);
@@ -67,9 +71,9 @@ bool process_exists(pid_t pid);
 // Unlocks the mutex associated with the process and frees a process hashmap reader.
 void unlock_process(process_t* process);
 
-// spawn_process_from_elf(char*, size_t, elf_t*, size_t, void*, size_t) -> process_t*
+// spawn_process_from_elf(char*, size_t, elf_t*, size_t, size_t, char**) -> process_t*
 // Spawns a process using the given elf file. Returns NULL on failure.
-process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, void* args, size_t arg_size);
+process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args);
 
 // spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> process_t*
 // Spawns a thread from the given process. Returns NULL on failure.

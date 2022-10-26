@@ -18,3 +18,10 @@ int strcmp(const char* s1, const char* s2) {
         return 0;
 }
 
+// strlen(const char*) -> size_t
+// Returns the length of the string.
+size_t strlen(const char* s) {
+    int i;
+    for (i = 0; s[i]; i++);
+    return i;
+}

@@ -296,14 +296,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Store page fault
             case 15: {
-                process_t* process = get_process(trap->pid);
+                process_t* process = get_process_unsafe(trap->pid);
                 if (process->faulted || process->fault_handler == NULL) {
+                    console_clear_lock_unsafe();
                     console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, process->name);
                     unlock_process(process);
                     // TODO: send segfault message
-                    kill_process(trap->pid, true);
-                    timer_switch(trap);
-                    return trap;
+                    if (trap->pid != 0) {
+                        kill_process(trap->pid, true);
+                        timer_switch(trap);
+                        return trap;
+                    }
+
+                    // TODO: indicate to other harts that kernel has panicked
+                    console_printf("KERNEL PANIC! INITD FAULTED!\n");
+                    while(1);
                 }
 
                 process->faulted = true;

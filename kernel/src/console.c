@@ -6,6 +6,12 @@
 
 atomic_bool console_lock = false;
 
+// console_clear_lock_unsafe() -> void
+// Clears the console lock unsafely.
+void console_clear_lock_unsafe() {
+    console_lock = false;
+}
+
 // console_write(char*, size_t) -> void
 // Writes the given substring to the UART.
 void console_write(char* s, size_t len) {

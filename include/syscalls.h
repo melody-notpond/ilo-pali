@@ -37,4 +37,9 @@ typedef uint64_t pid_t;
 // Spawns a new process in the same address space, executing the given function.
 pid_t spawn_thread(void (*func)(void* data), void* data);
 
+// exit(int64_t code) -> !
+// Exits the current process.
+__attribute__((noreturn))
+void exit(int64_t code);
+
 #endif /* SYSCALL_H */

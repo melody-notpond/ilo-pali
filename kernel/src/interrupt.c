@@ -96,7 +96,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                 uint64_t sip = 0;
                 asm volatile("csrw sip, %0" : "=r" (sip));
                 if (!process_exists(trap->pid)) {
-                    kill_process(trap->pid, true);
+                    kill_process(trap->pid);
                     timer_switch(trap);
                 }
                 break;
@@ -154,7 +154,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     case 0: {
                         char* message = (char*) trap->xs[REGISTER_A1];
                         process_t* process = get_process(trap->pid);
-                        console_printf("[process with PID 0x%lx (%s)] %s\n", trap->pid, process->name, message);
+                        console_printf("[PID 0x%lx (%s) @ hartid 0x%lx] %s\n", trap->pid, process->name, trap->hartid, message);
                         unlock_process(process);
                         break;
                     }
@@ -276,6 +276,16 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // exit(int64_t code) -> !
+                    // Exits the current process.
+                    case 7: {
+                        int64_t code = trap->xs[REGISTER_A1];
+                        (void) code; // TODO: use this
+                        kill_process(trap->pid);
+                        timer_switch(trap);
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                         break;
@@ -318,7 +328,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     unlock_process(process);
                     // TODO: send segfault message
                     if (trap->pid != 0) {
-                        kill_process(trap->pid, true);
+                        kill_process(trap->pid);
                         timer_switch(trap);
                         return trap;
                     }

@@ -17,7 +17,6 @@ typedef uint64_t capability_t;
 typedef uint64_t pid_t;
 
 typedef enum {
-    PROCESS_STATE_DEAD = 0,
     PROCESS_STATE_RUNNING,
     PROCESS_STATE_BLOCK_SLEEP,
     PROCESS_STATE_BLOCK_LOCK,
@@ -91,8 +90,8 @@ void switch_to_process(trap_t* trap, pid_t pid);
 // Searches for the next waiting process. Returns -1 if not found.
 pid_t get_next_waiting_process(pid_t pid);
 
-// kill_process(pid_t, bool) -> void
+// kill_process(pid_t) -> void
 // Kills a process.
-void kill_process(pid_t pid, bool erase);
+void kill_process(pid_t pid);
 
 #endif /* PROCESS_H */

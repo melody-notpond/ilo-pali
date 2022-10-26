@@ -35,9 +35,16 @@ void sleep(uint64_t seconds, uint64_t micros) {
     syscall(4, seconds, micros, 0, 0, 0, 0);
 }
 
-
 // spawn_thread(void (*func)(void* data), void* data) -> pid_t
 // Spawns a new process in the same address space, executing the given function.
 pid_t spawn_thread(void (*func)(void* data), void* data) {
     return syscall(6, (intptr_t) func, (intptr_t) data, 0, 0, 0, 0);
+}
+
+// exit(int64_t code) -> !
+// Exits the current process.
+__attribute__((noreturn))
+void exit(int64_t code) {
+    syscall(7, code, 0, 0, 0, 0, 0);
+    while(1);
 }

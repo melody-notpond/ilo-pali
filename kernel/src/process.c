@@ -108,7 +108,7 @@ process_t* get_process_unsafe(pid_t pid) {
 // Checks if the given pid has an associated process.
 bool process_exists(pid_t pid) {
     process_t* process = get_process(pid);
-    bool exists = process != NULL && process->state != PROCESS_STATE_DEAD;
+    bool exists = process != NULL;
     unlock_process(process);
     return exists;
 }
@@ -373,7 +373,7 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
 // Saves a process and pushes it onto the queue.
 void save_process(trap_t* trap) {
     process_t* last = get_process(trap->pid);
-    if (last == NULL || last->state == PROCESS_STATE_DEAD) {
+    if (last == NULL) {
         unlock_process(last);
         return;
     }
@@ -407,7 +407,7 @@ void switch_to_process(trap_t* trap, pid_t pid) {
     process_t* last = trap->pid != pid ? get_process(trap->pid) : NULL;
     process_t* next = get_process(pid);
 
-    if (last != NULL && last->state != PROCESS_STATE_DEAD) {
+    if (last != NULL) {
         bool f = false;
         while (!atomic_compare_exchange_weak(&mutating_jobs_queue, &f, true)) {
             f = false;
@@ -495,11 +495,6 @@ pid_t get_next_waiting_process(pid_t pid) {
                 set_mmu(process->mmu_data);
             if (current != process->mmu_data)
                 set_mmu(current);
-        } else if (process->state == PROCESS_STATE_DEAD) {
-            unlock_process(process);
-            kill_process(next_pid, true);
-            len--;
-            continue;
         }
 
         unlock_process(process);
@@ -518,18 +513,9 @@ pid_t get_next_waiting_process(pid_t pid) {
     return (pid_t) -1;
 }
 
-// kill_process(pid_t, bool) -> void
+// kill_process(pid_t) -> void
 // Kills a process.
-void kill_process(pid_t pid, bool erase) {
-    if (!erase) {
-        process_t* process = get_process(pid);
-        if (process == NULL)
-            return;
-        process->state = PROCESS_STATE_DEAD;
-        unlock_process(process);
-        return;
-    }
-
+void kill_process(pid_t pid) {
     LOCK_WRITE_PROCESSES();
     process_t* process = hashmap_get(processes, &pid);
     if (process == NULL) {
@@ -542,19 +528,12 @@ void kill_process(pid_t pid, bool erase) {
         f = false;
     }
 
-    if (process->state == PROCESS_STATE_DEAD) {
-        process->mutex_lock = false;
-        LOCK_RELEASE_PROCESSES();
-        return;
-    }
-
     pid_t initd = 0;
     if (process->mmu_data == get_mmu())
         set_mmu(((process_t*) hashmap_get(processes, &initd))->mmu_data); // initd's mmu pointer never changes so this is okay
 
     if (process->thread_source == (pid_t) -1)
         clean_mmu_table(process->mmu_data);
-    process->state = PROCESS_STATE_DEAD;
     process->mutex_lock = false;
     hashmap_remove(processes, &pid);
     LOCK_RELEASE_PROCESSES();

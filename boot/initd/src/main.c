@@ -2,10 +2,11 @@
 
 void say(void* msg) {
     char* message = msg;
-    while(1) {
+    for (int i = 0; i < 3; i++) {
         uart_puts(message);
         sleep(1, 0);
     }
+    exit(0);
 }
 
 int _start() {

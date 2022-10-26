@@ -99,7 +99,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 3, (char* []) { "uwu", "owo", "nya" });
+    process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 0, NULL);
     free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
@@ -111,7 +111,6 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     // initd->xs[REGISTER_A0] = (uint64_t) fdt;
-    console_printf("argc = %lx, argv = %p\n", initd->xs[REGISTER_A0], (void*) initd->xs[REGISTER_A1]);
     mmu_level_1_t* mmu = initd->mmu_data;
     unlock_process(initd);
 

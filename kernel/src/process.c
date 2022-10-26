@@ -282,9 +282,9 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
     return process_ptr;
 }
 
-// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> process_t*
+// spawn_thread_from_func(pid_t, void*, size_t, void*) -> process_t*
 // Spawns a thread from the given process. Returns NULL on failure.
-process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size) {
+process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args) {
     LOCK_WRITE_PROCESSES();
     process_t* parent = hashmap_get(processes, &parent_pid);
     if (parent != NULL) {
@@ -336,12 +336,14 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     parent->last_virtual_page += PAGE_SIZE;
 
     process.xs[REGISTER_A0] = (uint64_t) args;
-    process.xs[REGISTER_A1] = arg_size;
 
     size_t name_size = 0;
     for (; parent->name[name_size]; name_size++);
+    if (name_size < PROCESS_NAME_SIZE && parent->name[name_size - 1] != '~')
+        name_size++;
     process.name = malloc(name_size + 1);
-    memcpy(process.name, parent->name, name_size);
+    memcpy(process.name, parent->name, name_size - 1);
+    process.name[name_size - 1] = '~';
     process.name[name_size] = '\0';
     process.pid = pid;
     process.pc = (uint64_t) func;

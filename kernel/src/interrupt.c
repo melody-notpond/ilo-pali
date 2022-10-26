@@ -261,6 +261,21 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // spawn(...) -> pid_t
+                    // Spawns a new process.
+                    case 5:
+                        break;
+
+                    // spawn_thread(void (*func)(void* data), void* data) -> pid_t
+                    // Spawns a new process in the same address space, executing the given function.
+                    case 6: {
+                        void* func = (void*) trap->xs[REGISTER_A1];
+                        void* data = (void*) trap->xs[REGISTER_A2];
+                        process_t* thread = spawn_thread_from_func(trap->pid, func, 2, data);
+                        unlock_process(thread);
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                         break;

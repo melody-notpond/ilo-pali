@@ -75,9 +75,9 @@ void unlock_process(process_t* process);
 // Spawns a process using the given elf file. Returns NULL on failure.
 process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args);
 
-// spawn_thread_from_func(pid_t, void*, size_t, void*, size_t) -> process_t*
+// spawn_thread_from_func(pid_t, void*, size_t, void*) -> process_t*
 // Spawns a thread from the given process. Returns NULL on failure.
-process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args, size_t arg_size);
+process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args);
 
 // save_process(trap_t*) -> void
 // Saves a process and pushes it onto the queue.

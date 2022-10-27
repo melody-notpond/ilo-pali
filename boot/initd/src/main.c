@@ -25,8 +25,8 @@ int _start() {
     fat16_fs_t fat = verify_initrd(fat_raw, fat_raw + allowed.size);
     size_t size;
     void* data = read_file_full(&fat, "uwu", &size);
-    uart_puts("read file /uwu:");
-    uart_puts((char*) data);
+    uart_puts("spawning /uwu");
+    spawn(data, size, "uwu", 0, NULL);
     while(1);
 }
 

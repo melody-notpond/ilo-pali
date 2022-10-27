@@ -35,6 +35,10 @@ void sleep(uint64_t seconds, uint64_t micros);
 
 typedef uint64_t pid_t;
 
+// spawn(void* elf, size_t elf_size, char* name, size_t argc, char** argv) -> pid_t
+// Spawns a new process. Returns -1 on error.
+pid_t spawn(void* elf, size_t elf_size, char* name, size_t argc, char** argv);
+
 // spawn_thread(void (*func)(void* data), void* data) -> pid_t
 // Spawns a new process in the same address space, executing the given function.
 pid_t spawn_thread(void (*func)(void* data), void* data);

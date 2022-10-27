@@ -35,6 +35,12 @@ void sleep(uint64_t seconds, uint64_t micros) {
     syscall(4, seconds, micros, 0, 0, 0, 0);
 }
 
+// spawn(void* elf, size_t elf_size, char* name, size_t argc, char** argv) -> pid_t
+// Spawns a new process. Returns -1 on error.
+pid_t spawn(void* elf, size_t elf_size, char* name, size_t argc, char** argv) {
+    return syscall(5, (intptr_t) elf, elf_size, (intptr_t) name, argc, (intptr_t) argv, 0);
+}
+
 // spawn_thread(void (*func)(void* data), void* data) -> pid_t
 // Spawns a new process in the same address space, executing the given function.
 pid_t spawn_thread(void (*func)(void* data), void* data) {

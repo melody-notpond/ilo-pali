@@ -32,6 +32,7 @@ run:
 
 boot: boot_dir lib
 	$(MAKE) -C boot/initd/
+	#$(MAKE) -C boot/uwu/
 
 root: root_dir lib
 	cp root/test.txt build/root/
@@ -47,6 +48,7 @@ lib_dir: build
 
 boot_dir: build
 	mkdir -p build/boot/
+	echo "hewo wowwd! this is my test file uwu" > build/boot/uwu
 
 build:
 	mkdir -p build/

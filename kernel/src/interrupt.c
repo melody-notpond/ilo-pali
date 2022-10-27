@@ -319,7 +319,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (i < PROCESS_MAX_ALLOWED_MEMORY_RANGES && process->allowed_memory_ranges[i].size != 0) {
                             *memory = process->allowed_memory_ranges[i];
                             trap->xs[REGISTER_A0] = true;
-                        } else trap->xs[REGISTER_A0] = false;
+                        } else {
+                            trap->xs[REGISTER_A0] = false;
+                            *memory = (struct allowed_memory) { 0 };
+                        }
+
                         unlock_process(process);
                         break;
                     }
@@ -362,7 +366,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         size_t page_count = (size + (size_t) (start - physical_start) + PAGE_SIZE - 1) / PAGE_SIZE;
                         void* virtual = process->last_virtual_page + (start - physical_start);
                         for (size_t i = 0; i < page_count; i++) {
-                            mmu_alloc(process->mmu_data, process->last_virtual_page, perms | MMU_BIT_USER | MMU_BIT_VALID);
+                            mmu_map(process->mmu_data, process->last_virtual_page, physical_start + i * PAGE_SIZE, perms | MMU_BIT_USER | MMU_BIT_VALID);
                             process->last_virtual_page += PAGE_SIZE;
                         }
                         trap->xs[REGISTER_A0] = (intptr_t) virtual;

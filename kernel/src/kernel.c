@@ -117,6 +117,7 @@ void kinit(uint64_t hartid, void* fdt) {
     };
     free(data);
 
+    /*
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
@@ -124,8 +125,8 @@ void kinit(uint64_t hartid, void* fdt) {
     for (page_t* p = (page_t*) devicetree.header; p < (page_t*) ((void*) devicetree.header + be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1); p++) {
         mmu_change_flags(top, p, MMU_BIT_READ | MMU_BIT_USER);
     }
+    */
 
-    // initd->xs[REGISTER_A0] = (uint64_t) fdt;
     mmu_level_1_t* mmu = initd->mmu_data;
     unlock_process(initd);
 

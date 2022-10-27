@@ -61,3 +61,9 @@ void exit(int64_t code) {
 bool get_allowed_memory(size_t i, struct allowed_memory* memory) {
     return syscall(8, i, (intptr_t) memory, 0, 0, 0, 0);
 }
+
+// map_physical_memory(void* start, size_t size, int perms) -> void*
+// Maps a given physical range of memory to a virtual address for usage by the process. The process must have the ability to use this memory range or else it will return NULL.
+void* map_physical_memory(void* start, size_t size, int perms) {
+    return (void*) syscall(9, (intptr_t) start, size, perms, 0, 0, 0);
+}

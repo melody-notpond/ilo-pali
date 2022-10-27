@@ -60,4 +60,8 @@ struct allowed_memory {
 // };
 bool get_allowed_memory(size_t i, struct allowed_memory* memory);
 
+// map_physical_memory(void* start, size_t size, int perms) -> void*
+// Maps a given physical range of memory to a virtual address for usage by the process. The process must have the ability to use this memory range or else it will return NULL.
+void* map_physical_memory(void* start, size_t size, int perms);
+
 #endif /* SYSCALL_H */

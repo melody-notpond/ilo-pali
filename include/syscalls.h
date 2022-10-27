@@ -1,6 +1,7 @@
 #ifndef SYSCALL_H
 #define SYSCALL_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -41,5 +42,22 @@ pid_t spawn_thread(void (*func)(void* data), void* data);
 // Exits the current process.
 __attribute__((noreturn))
 void exit(int64_t code);
+
+struct allowed_memory {
+     char name[16];
+     void* start;
+     size_t size;
+};
+
+// get_allowed_memory(size_t i, struct allowed_memory* memory) -> bool
+// Gets an element of the allowed memory list. Returns true if the given index exists and false if out of bounds.
+//
+// The struct is defined below:
+// struct allowed_memory {
+//      char name[16];
+//      void* start;
+//      size_t size;
+// };
+bool get_allowed_memory(size_t i, struct allowed_memory* memory);
 
 #endif /* SYSCALL_H */

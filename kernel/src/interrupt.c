@@ -3,8 +3,9 @@
 #include "console.h"
 #include "interrupt.h"
 #include "memory.h"
-#include "process.h"
 #include "opensbi.h"
+#include "process.h"
+#include "string.h"
 #include "time.h"
 
 static void* plic_base;
@@ -261,10 +262,25 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // spawn(...) -> pid_t
-                    // Spawns a new process.
-                    case 5:
+                    // spawn(void* elf, size_t elf_size, char* name, size_t argc, char** argv) -> pid_t
+                    // Spawns a new process. Returns -1 on error.
+                    case 5: {
+                        void* elf_raw = (void*) trap->xs[REGISTER_A1];
+                        size_t elf_size = trap->xs[REGISTER_A2];
+                        char* name = (char*) trap->xs[REGISTER_A3];
+                        size_t argc = trap->xs[REGISTER_A4];
+                        char** argv = (char**) trap->xs[REGISTER_A5];
+                        elf_t elf = verify_elf(elf_raw, elf_size);
+                        if (elf.header == NULL) {
+                            trap->xs[REGISTER_A0] = -1;
+                            break;
+                        }
+
+                        process_t* process = spawn_process_from_elf(name, strlen(name), &elf, 2, argc, argv);
+                        trap->xs[REGISTER_A0] = process->pid;
+                        unlock_process(process);
                         break;
+                    }
 
                     // spawn_thread(void (*func)(void* data), void* data) -> pid_t
                     // Spawns a new process in the same address space, executing the given function.
@@ -272,6 +288,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         void* func = (void*) trap->xs[REGISTER_A1];
                         void* data = (void*) trap->xs[REGISTER_A2];
                         process_t* thread = spawn_thread_from_func(trap->pid, func, 2, data);
+                        trap->xs[REGISTER_A0] = thread->pid;
                         unlock_process(thread);
                         break;
                     }
@@ -283,6 +300,27 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         (void) code; // TODO: use this
                         kill_process(trap->pid);
                         timer_switch(trap);
+                        break;
+                    }
+
+                    // get_allowed_memory(size_t i, struct allowed_memory* memory) -> bool
+                    // Gets an element of the allowed memory list. Returns true if the given index exists and false if out of bounds.
+                    //
+                    // The struct is defined below:
+                    // struct allowed_memory {
+                    //      char name[16];
+                    //      void* start;
+                    //      size_t size;
+                    // };
+                    case 8: {
+                        size_t i = trap->xs[REGISTER_A1];
+                        struct allowed_memory* memory = (struct allowed_memory*) trap->xs[REGISTER_A2];
+                        process_t* process = get_process(trap->pid);
+                        if (i < PROCESS_MAX_ALLOWED_MEMORY_RANGES && process->allowed_memory_ranges[i].size != 0) {
+                            *memory = process->allowed_memory_ranges[i];
+                            trap->xs[REGISTER_A0] = true;
+                        } else trap->xs[REGISTER_A0] = false;
+                        unlock_process(process);
                         break;
                     }
 

@@ -100,6 +100,21 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 0, NULL);
+    initd->allowed_memory_ranges[0] = (struct allowed_memory) {
+        .name = "all",
+        .start = 0,
+        .size = 0xffffffffffffffff,
+    };
+    initd->allowed_memory_ranges[1] = (struct allowed_memory) {
+        .name = "fdt",
+        .start = devicetree.header,
+        .size = be_to_le(32, devicetree.header->totalsize),
+    };
+    initd->allowed_memory_ranges[2] = (struct allowed_memory) {
+        .name = "initrd",
+        .start = initrd_start,
+        .size = initrd_end - initrd_start,
+    };
     free(data);
 
     for (page_t* p = initrd_start; p < (page_t*) (initrd_end + PAGE_SIZE - 1); p++) {

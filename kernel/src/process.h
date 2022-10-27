@@ -23,6 +23,14 @@ typedef enum {
     PROCESS_STATE_WAIT,
 } process_state_t;
 
+struct allowed_memory {
+     char name[16];
+     void* start;
+     size_t size;
+};
+
+#define PROCESS_MAX_ALLOWED_MEMORY_RANGES 16
+
 typedef struct {
     char* name;
     pid_t pid;
@@ -42,6 +50,8 @@ typedef struct {
 
     size_t channels_len;
     size_t channels_cap;
+
+    struct allowed_memory allowed_memory_ranges[PROCESS_MAX_ALLOWED_MEMORY_RANGES];
 
     void* last_virtual_page;
 

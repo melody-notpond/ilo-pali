@@ -318,7 +318,7 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
             pid++;
     }
 
-    process_t process;
+    process_t process = { 0 };
     process.mmu_data = parent->mmu_data;
     process.thread_source = parent->pid;
 

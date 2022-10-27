@@ -89,7 +89,7 @@ void hashmap_grow(hashmap_t* hashmap) {
     size_t val_size = (*hashmap)->val_size;
     hashmap_t new = malloc(sizeof(struct s_hashmap) + sizeof(struct s_hashmap_bucket) * (*hashmap)->cap * 2);
     *new = (struct s_hashmap) {
-        .cap = (*hashmap)->cap,
+        .cap = (*hashmap)->cap << 1,
         .key_size = key_size,
         .val_size = val_size,
     };
@@ -150,9 +150,9 @@ void hashmap_insert(hashmap_t* hashmap, void* key, void* value) {
             memcpy(bucket->values + bucket->len * val_size, value, val_size);
             bucket->len++;
             return;
-        } else {
-            hashmap_grow(hashmap);
         }
+
+        hashmap_grow(hashmap);
     }
 }
 

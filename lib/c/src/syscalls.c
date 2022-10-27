@@ -48,3 +48,16 @@ void exit(int64_t code) {
     syscall(7, code, 0, 0, 0, 0, 0);
     while(1);
 }
+
+// get_allowed_memory(size_t i, struct allowed_memory* memory) -> bool
+// Gets an element of the allowed memory list. Returns true if the given index exists and false if out of bounds.
+//
+// The struct is defined below:
+// struct allowed_memory {
+//      char name[16];
+//      void* start;
+//      size_t size;
+// };
+bool get_allowed_memory(size_t i, struct allowed_memory* memory) {
+    return syscall(8, i, (intptr_t) memory, 0, 0, 0, 0);
+}

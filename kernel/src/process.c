@@ -146,7 +146,7 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
         identity_map_kernel(top, NULL, NULL, NULL);
     }
 
-    page_t* max_page = NULL;
+    void* max_page = NULL;
     for (size_t i = 0; i < elf->header->program_header_num; i++) {
         elf_program_header_t* program_header = get_elf_program_header(elf, i);
 
@@ -176,7 +176,7 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
 
             page = kernel_space_phys2virtual(page);
 
-            if ((page_t*) virtual > max_page)
+            if (virtual > max_page)
                 max_page = virtual;
 
             size_t size;
@@ -199,10 +199,10 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
 
     max_page = (void*) (((intptr_t) max_page + PAGE_SIZE - 1) / PAGE_SIZE * PAGE_SIZE);
 
-    mmu_alloc(top, ++max_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
-    void* fault_stack = max_page;
+    mmu_alloc(top, max_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    void* fault_stack = max_page + PAGE_SIZE;
     for (size_t i = 1; i <= stack_size; i++) {
-        mmu_alloc(top, max_page + i, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+        mmu_alloc(top, max_page + i * PAGE_SIZE, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
     }
     process_t process = { 0 };
     process.fault_stack = fault_stack;

@@ -374,6 +374,16 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
+                    // set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+                    // Sets the fault handler for the current process.
+                    case 10: {
+                        void* handler = (void*) trap->xs[REGISTER_A1];
+                        process_t* process = get_process(trap->pid);
+                        process->fault_handler = handler;
+                        unlock_process(process);
+                        break;
+                    }
+
                     default:
                         console_printf("unknown syscall 0x%lx\n", trap->xs[REGISTER_A0]);
                         break;

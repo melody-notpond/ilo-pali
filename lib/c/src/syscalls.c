@@ -73,3 +73,9 @@ bool get_allowed_memory(size_t i, struct allowed_memory* memory) {
 void* map_physical_memory(void* start, size_t size, int perms) {
     return (void*) syscall(9, (intptr_t) start, size, perms, 0, 0, 0);
 }
+
+// set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+// Sets the fault handler for the current process.
+void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) {
+    syscall(10, (intptr_t) handler, 0, 0, 0, 0, 0);
+}

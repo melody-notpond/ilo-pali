@@ -69,4 +69,8 @@ bool get_allowed_memory(size_t i, struct allowed_memory* memory);
 // Maps a given physical range of memory to a virtual address for usage by the process. The process must have the ability to use this memory range or else it will return NULL.
 void* map_physical_memory(void* start, size_t size, int perms);
 
+// set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
+// Sets the fault handler for the current process.
+void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp));
+
 #endif /* SYSCALL_H */

@@ -79,3 +79,16 @@ void* map_physical_memory(void* start, size_t size, int perms) {
 void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) {
     syscall(10, (intptr_t) handler, 0, 0, 0, 0, 0);
 }
+
+// lock(void* ref, int type, uint64_t value) -> int status
+// Locks the current process until the given condition is true. Returns 0 on success.
+// Types:
+// - WAIT    - 0
+//      Waits while the pointer provided is the same as value.
+// - WAKE    - 1
+//      Wakes when the pointer provided is the same as value.
+// - SIZE     - 0,2,4,6
+//      Determines the size of the value. 0 = u8, 6 = u64
+int lock(void* ref, int type, uint64_t value) {
+    return syscall(11, (intptr_t) ref, type, value, 0, 0, 0);
+}

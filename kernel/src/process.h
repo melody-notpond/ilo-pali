@@ -30,6 +30,68 @@ struct allowed_memory {
 };
 
 #define PROCESS_MAX_ALLOWED_MEMORY_RANGES 16
+#define CAPABILITIES_MAX_ALLOWED          1024
+#define CAPABILITIES_QUEUE_SIZE           1024
+
+typedef enum {
+    MESSAGE_TYPE_INTEGER     = 0,
+    MESSAGE_TYPE_USER_SIGNAL = 1,
+    MESSAGE_TYPE_DATA        = 2,
+    MESSAGE_TYPE_POINTER     = 3,
+    MESSAGE_TYPE_INTERRUPT   = 4,
+    MESSAGE_TYPE_CHILD_DEATH = 5,
+    MESSAGE_TYPE_KILL_SIGNAL = 6,
+} message_type_t;
+
+typedef enum {
+    MESSAGE_KILL_TYPE_KILL        = 0,
+    MESSAGE_KILL_TYPE_MURDER      = 1,
+    MESSAGE_KILL_TYPE_INTERRUPT   = 2,
+    MESSAGE_KILL_TYPE_SUSPEND     = 3,
+    MESSAGE_KILL_TYPE_RESUME      = 4,
+    MESSAGE_KILL_TYPE_SEGFAULT    = 5,
+    MESSAGE_KILL_TYPE_NORMAL_EXIT = 6,
+} message_kill_type_t;
+
+typedef struct {
+    pid_t transmitter;
+    message_type_t type;
+    uint64_t metadata;
+    uint64_t data;
+} channel_message_t;
+
+typedef struct s_channel {
+    struct s_channel* recipient;
+    size_t queue_length;
+    size_t queue_start;
+    size_t queue_end;
+
+    struct {
+        uint8_t user : 1;
+        uint8_t integer : 1;
+        uint8_t pointer : 1;
+        uint8_t data : 1;
+        struct {
+            uint8_t kill : 1;
+            uint8_t murder : 2;
+            uint8_t interrupt : 2;
+            uint8_t suspend : 2;
+            uint8_t resume : 2;
+            uint8_t segfault : 1;
+        } kill;
+        struct {
+            uint8_t killed : 1;
+            uint8_t murdered : 1;
+            uint8_t interrupted : 1;
+            uint8_t suspended : 1;
+            uint8_t resumed : 1;
+            uint8_t segfaulted : 1;
+            uint8_t normal_exit : 1;
+        } recipient_killed;
+    } allowed;
+
+    channel_message_t message_queue[CAPABILITIES_QUEUE_SIZE];
+} channel_t;
 
 typedef struct {
     char* name;
@@ -50,6 +112,7 @@ typedef struct {
 
     size_t channels_len;
     size_t channels_cap;
+    channel_t* channels;
 
     struct allowed_memory allowed_memory_ranges[PROCESS_MAX_ALLOWED_MEMORY_RANGES];
 

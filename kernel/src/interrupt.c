@@ -87,6 +87,27 @@ void init_interrupts(uint64_t hartid, fdt_t* fdt) {
     *(uint32_t*) (plic_base + 0x200000 + 0x1000 * CONTEXT(hartid, 1)) = 0;
 }
 
+bool lock_equals(void* ref, int type, uint64_t value) {
+    switch (type & 0x06) {
+        case 0:
+            return value == *(uint8_t*) ref;
+        case 2:
+            return value == *(uint16_t*) ref;
+        case 4:
+            return value == *(uint32_t*) ref;
+        case 6:
+            return value == *(uint64_t*) ref;
+        default:
+            return false;
+    }
+}
+
+// lock_stop(void*, int, uint64_t) -> bool
+// Returns true if the lock should stop blocking.
+bool lock_stop(void* ref, int type, uint64_t value) {
+    return (((type & 1) == 0) && !lock_equals(ref, type, value)) || (((type & 1) == 1) && lock_equals(ref, type, value));
+}
+
 trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
@@ -381,6 +402,37 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         process_t* process = get_process(trap->pid);
                         process->fault_handler = handler;
                         unlock_process(process);
+                        break;
+                    }
+
+                    // lock(void* ref, int type, uint64_t value) -> int status
+                    // Locks the current process until the given condition is true. Returns 0 on success.
+                    // Types:
+                    // - WAIT    - 0
+                    //      Waits while the pointer provided is the same as value.
+                    // - WAKE    - 1
+                    //      Wakes when the pointer provided is the same as value.
+                    // - SIZE     - 0,2,4,6
+                    //      Determines the size of the value. 0 = u8, 6 = u64
+                    case 11: {
+                        void* ref = (void*) trap->xs[REGISTER_A1];
+                        int type = trap->xs[REGISTER_A2];
+                        uint64_t value = trap->xs[REGISTER_A3];
+
+                        if (type > 7)
+                            trap->xs[REGISTER_A0] = 1;
+                        else if (lock_stop(ref, type, value))
+                            trap->xs[REGISTER_A0] = 0;
+                        else {
+                            process_t* process = get_process(trap->pid);
+                            process->state = PROCESS_STATE_BLOCK_LOCK;
+                            process->lock_ref = ref;
+                            process->lock_type = type;
+                            process->lock_value = value;
+                            unlock_process(process);
+                            timer_switch(trap);
+                        }
+
                         break;
                     }
 

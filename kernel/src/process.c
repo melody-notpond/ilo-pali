@@ -101,7 +101,6 @@ process_t* get_process_unsafe(pid_t pid) {
 
     process->mutex_lock = true;
     return process;
-
 }
 
 // process_exists(pid_t) -> bool
@@ -493,6 +492,12 @@ pid_t get_next_waiting_process(pid_t pid) {
             mmu_level_1_t* current = get_mmu();
             if (current != process->mmu_data)
                 set_mmu(process->mmu_data);
+            if (lock_stop(process->lock_ref, process->lock_type, process->lock_value)) {
+                process->xs[REGISTER_A0] = 0;
+                mutating_jobs_queue = false;
+                unlock_process(process);
+                return next_pid;
+            }
             if (current != process->mmu_data)
                 set_mmu(current);
         }

@@ -58,6 +58,10 @@ void timer_switch(trap_t* trap);
 // Inits interrupts.
 void init_interrupts(uint64_t hartid, fdt_t* fdt);
 
+// lock_stop(void*, int, uint64_t) -> bool
+// Returns true if the lock should stop blocking.
+bool lock_stop(void* ref, int type, uint64_t value);
+
 // jump_out_of_trap(trap_t*) -> void
 // Jumps out of a trap.
 void jump_out_of_trap(trap_t* trap);

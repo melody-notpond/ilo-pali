@@ -324,76 +324,8 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    // get_allowed_memory(size_t i, struct allowed_memory* memory) -> bool
-                    // Gets an element of the allowed memory list. Returns true if the given index exists and false if out of bounds.
-                    //
-                    // The struct is defined below:
-                    // struct allowed_memory {
-                    //      char name[16];
-                    //      void* start;
-                    //      size_t size;
-                    // };
-                    case 8: {
-                        size_t i = trap->xs[REGISTER_A1];
-                        struct allowed_memory* memory = (struct allowed_memory*) trap->xs[REGISTER_A2];
-                        process_t* process = get_process(trap->pid);
-                        if (i < PROCESS_MAX_ALLOWED_MEMORY_RANGES && process->allowed_memory_ranges[i].size != 0) {
-                            *memory = process->allowed_memory_ranges[i];
-                            trap->xs[REGISTER_A0] = true;
-                        } else {
-                            trap->xs[REGISTER_A0] = false;
-                            *memory = (struct allowed_memory) { 0 };
-                        }
-
-                        unlock_process(process);
-                        break;
-                    }
-
-                    // map_physical_memory(void* start, size_t size, int perms) -> void*
-                    // Maps a given physical range of memory to a virtual address for usage by the process. The process must have the ability to use this memory range or else it will return NULL.
-                    case 9: {
-                        void* start = (void*) trap->xs[REGISTER_A1];
-                        size_t size = trap->xs[REGISTER_A2];
-                        int permissions = trap->xs[REGISTER_A3];
-
-                        process_t* process = get_process(trap->pid);
-                        bool found = false;
-                        int i;
-                        for (i = 0; i < PROCESS_MAX_ALLOWED_MEMORY_RANGES; i++) {
-                            struct allowed_memory memory = process->allowed_memory_ranges[i];
-                            if (memory.size == 0)
-                                break;
-                            if (memory.start <= start && start + size <= memory.start + memory.size) {
-                                found = true;
-                                break;
-                            }
-                        }
-
-                        if (!found) {
-                            trap->xs[REGISTER_A0] = 0;
-                            unlock_process(process);
-                            break;
-                        }
-
-                        int perms = 0;
-                        if (permissions & 2)
-                            perms |= MMU_BIT_WRITE;
-                        else if (permissions & 1)
-                            perms |= MMU_BIT_EXECUTE;
-                        if (permissions & 4)
-                            perms |= MMU_BIT_READ;
-
-                        void* physical_start = (void*) (((intptr_t) start) / PAGE_SIZE * PAGE_SIZE);
-                        size_t page_count = (size + (size_t) (start - physical_start) + PAGE_SIZE - 1) / PAGE_SIZE;
-                        void* virtual = process->last_virtual_page + (start - physical_start);
-                        for (size_t i = 0; i < page_count; i++) {
-                            mmu_map(process->mmu_data, process->last_virtual_page, physical_start + i * PAGE_SIZE, perms | MMU_BIT_USER | MMU_BIT_VALID);
-                            process->last_virtual_page += PAGE_SIZE;
-                        }
-                        trap->xs[REGISTER_A0] = (intptr_t) virtual;
-                        unlock_process(process);
-                        break;
-                    }
+                    case 8: break;
+                    case 9: break;
 
                     // set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
                     // Sets the fault handler for the current process.

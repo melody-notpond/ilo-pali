@@ -263,8 +263,9 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
     process.mmu_data = top;
     process.pc = elf->header->entry;
     process.state = PROCESS_STATE_WAIT;
-    process.channels_len = 0;
-    process.channels_cap = 0;
+    process.capabilities = NULL;
+    process.capabilities_cap = 0;
+    process.capabilities_len = 0;
     process.fault_handler = NULL;
     process.faulted = false;
     hashmap_insert(processes, &pid, &process);
@@ -347,8 +348,9 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
     process.pid = pid;
     process.pc = (uint64_t) func;
     process.state = PROCESS_STATE_WAIT;
-    process.channels_len = 0;
-    process.channels_cap = 0;
+    process.capabilities = NULL;
+    process.capabilities_cap = 0;
+    process.capabilities_len = 0;
     process.fault_handler = NULL;
     process.faulted = false;
     hashmap_insert(processes, &pid, &process);
@@ -516,6 +518,20 @@ pid_t get_next_waiting_process(pid_t pid) {
 
     unlock_process(current);
     return (pid_t) -1;
+}
+
+// push_capability(pid_t, capability_internal_t) -> void
+// Pushes a capability to a process's list of capabilities.
+void push_capability(pid_t pid, capability_internal_t cap) {
+    process_t* process = get_process(pid);
+    if (process->capabilities_len >= process->capabilities_cap) {
+        if (process->capabilities_cap == 0) {
+            process->capabilities_cap = 8;
+        } else process->capabilities_cap <<= 1;
+        process->capabilities = realloc(process->capabilities, sizeof(capability_internal_t) * process->capabilities_cap);
+    }
+    process->capabilities[process->capabilities_len++] = cap;
+    unlock_process(process);
 }
 
 // kill_process(pid_t) -> void

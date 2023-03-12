@@ -100,25 +100,44 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 0, NULL);
-    initd->allowed_memory_ranges[0] = (struct allowed_memory) {
-        .name = "all",
-        .start = 0,
-        .size = 0xffffffffffffffff,
-    };
-    initd->allowed_memory_ranges[1] = (struct allowed_memory) {
-        .name = "fdt",
-        .start = devicetree.header,
-        .size = be_to_le(32, devicetree.header->totalsize),
-    };
-    initd->allowed_memory_ranges[2] = (struct allowed_memory) {
-        .name = "initrd",
-        .start = initrd_start,
-        .size = initrd_end - initrd_start,
-    };
     free(data);
 
     mmu_level_1_t* mmu = initd->mmu_data;
+    pid_t initd_pid = initd->pid;
     unlock_process(initd);
+
+    push_capability(initd_pid, (capability_internal_t) {
+        .name = "root_mem",
+        .type = CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
+        .data = {
+            .memory_range = {
+                .start = 0,
+                .end = 0xffffffffffffffff,
+            },
+        },
+    });
+
+    push_capability(initd_pid, (capability_internal_t) {
+        .name = "fdt_mem",
+        .type = CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
+        .data = {
+            .memory_range = {
+                .start = (intptr_t) fdt,
+                .end = (intptr_t) fdt + (intptr_t) be_to_le(32, devicetree.header->totalsize),
+            },
+        },
+    });
+
+    push_capability(initd_pid, (capability_internal_t) {
+        .name = "interrupts",
+        .type = CAPABILITY_INTERNAL_TYPE_INTERRUPT,
+        .data = {
+            .interrupt = {
+                .interrupt_mask_1 = 0xffffffffffffffff,
+                .interrupt_mask_2 = 0xffffffffffffffff,
+            },
+        },
+    });
 
     console_puts("[kinit] initialising harts\n");
     extern void init_hart(uint64_t hartid, mmu_level_1_t* mmu);

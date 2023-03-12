@@ -60,6 +60,47 @@ typedef struct {
     uint64_t data;
 } channel_message_t;
 
+typedef struct {
+    char name[16];
+
+    enum {
+        CAPABILITY_INTERNAL_TYPE_CHANNEL,
+        CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
+        CAPABILITY_INTERNAL_TYPE_INTERRUPT,
+        CAPABILITY_INTERNAL_TYPE_KILL,
+    } type;
+
+    union {
+        struct {
+            uint8_t user : 1;
+            uint8_t integer : 1;
+            uint8_t pointer : 1;
+            uint8_t data : 1;
+        } channel;
+
+        struct {
+            intptr_t start;
+            intptr_t end;
+        } memory_range;
+
+        struct {
+            uint64_t interrupt_mask_1;
+            uint64_t interrupt_mask_2;
+        } interrupt;
+
+        struct {
+            pid_t target;
+            uint8_t kill : 1;
+            uint8_t murder : 2;
+            uint8_t interrupt : 2;
+            uint8_t suspend : 2;
+            uint8_t resume : 2;
+            uint8_t segfault : 1;
+        } kill;
+    } data;
+} capability_internal_t;
+
+/*
 typedef struct s_channel {
     struct s_channel* recipient;
     size_t queue_length;
@@ -92,6 +133,7 @@ typedef struct s_channel {
 
     channel_message_t message_queue[CAPABILITIES_QUEUE_SIZE];
 } channel_t;
+*/
 
 typedef struct {
     char* name;
@@ -110,11 +152,15 @@ typedef struct {
     uint64_t lock_value;
     int lock_type;
 
+    /*
     size_t channels_len;
     size_t channels_cap;
     channel_t* channels;
+    */
 
-    struct allowed_memory allowed_memory_ranges[PROCESS_MAX_ALLOWED_MEMORY_RANGES];
+    size_t capabilities_len;
+    size_t capabilities_cap;
+    capability_internal_t* capabilities;
 
     void* last_virtual_page;
 
@@ -162,6 +208,10 @@ void switch_to_process(trap_t* trap, pid_t pid);
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns -1 if not found.
 pid_t get_next_waiting_process(pid_t pid);
+
+// push_capability(pid_t, capability_internal_t) -> void
+// Pushes a capability to a process's list of capabilities.
+void push_capability(pid_t pid, capability_internal_t cap);
 
 // kill_process(pid_t) -> void
 // Kills a process.

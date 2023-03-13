@@ -64,6 +64,7 @@ typedef struct {
     char name[16];
 
     enum {
+        CAPABILITY_INTERNAL_TYPE_NIL,
         CAPABILITY_INTERNAL_TYPE_CHANNEL,
         CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
         CAPABILITY_INTERNAL_TYPE_INTERRUPT,
@@ -72,6 +73,7 @@ typedef struct {
 
     union {
         struct {
+            pid_t target;
             uint8_t user : 1;
             uint8_t integer : 1;
             uint8_t pointer : 1;

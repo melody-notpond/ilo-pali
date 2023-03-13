@@ -324,12 +324,9 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         break;
                     }
 
-                    case 8: break;
-                    case 9: break;
-
                     // set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
                     // Sets the fault handler for the current process.
-                    case 10: {
+                    case 8: {
                         void* handler = (void*) trap->xs[REGISTER_A1];
                         process_t* process = get_process(trap->pid);
                         process->fault_handler = handler;
@@ -340,13 +337,13 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     // lock(void* ref, int type, uint64_t value) -> int status
                     // Locks the current process until the given condition is true. Returns 0 on success.
                     // Types:
-                    // - WAIT    - 0
+                    // - WAIT - 0
                     //      Waits while the pointer provided is the same as value.
-                    // - WAKE    - 1
+                    // - WAKE - 1
                     //      Wakes when the pointer provided is the same as value.
-                    // - SIZE     - 0,2,4,6
+                    // - SIZE - 0,2,4,6
                     //      Determines the size of the value. 0 = u8, 6 = u64
-                    case 11: {
+                    case 9: {
                         void* ref = (void*) trap->xs[REGISTER_A1];
                         int type = trap->xs[REGISTER_A2];
                         uint64_t value = trap->xs[REGISTER_A3];
@@ -365,6 +362,91 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                             timer_switch(trap);
                         }
 
+                        break;
+                    }
+
+                    // capability_data(size_t* index, char* name, uint64_t* data_top, uint64_t* data_bot) -> int type
+                    // Gets the data of the capability associated with the given index. Returns the type of the capability.
+                    // This is useful for doing things like `switch (capability_data(&index, ...)) { ... }`.
+                    // The buffer must be at least 16 characters long.
+                    // Types:
+                    // - NONE      - 0
+                    //      No capability is associated with this index.
+                    // - CHANNEL   - 1
+                    //      The capability is a channel.
+                    // - MEMORY    - 2
+                    //      The capability is an ability to use a range of physical memory.
+                    // - INTERRUPT - 3
+                    //      The capability is an ability to process an interrupt.
+                    // - KILL      - 4
+                    //      The capability is an ability to kll another process.
+                    case 10: {
+                        size_t* index = (void*) trap->xs[REGISTER_A1];
+                        char* name = (void*) trap->xs[REGISTER_A2];
+                        uint64_t* data_top = (void*) trap->xs[REGISTER_A3];
+                        uint64_t* data_bot = (void*) trap->xs[REGISTER_A4];
+
+                        trap->xs[REGISTER_A0] = 0;
+                        if (index == NULL)
+                            break;
+
+                        process_t* process = get_process(trap->pid);
+
+                        while (*index < process->capabilities_len) {
+                            capability_internal_t cap = process->capabilities[*index];
+                            (*index)++;
+                            if (cap.type != CAPABILITY_INTERNAL_TYPE_NIL) {
+                                if (name != NULL)
+                                    memcpy(name, cap.name, 16);
+                                switch (cap.type) {
+                                    case CAPABILITY_INTERNAL_TYPE_CHANNEL:
+                                        trap->xs[REGISTER_A0] = 1;
+                                        if (data_top != NULL)
+                                            *data_top = cap.data.channel.target;
+                                        if (data_bot != NULL)
+                                            *data_bot = cap.data.channel.user << 3
+                                                      | cap.data.channel.integer << 2
+                                                      | cap.data.channel.pointer << 1
+                                                      | cap.data.channel.data << 0;
+                                        break;
+
+                                    case CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE:
+                                        trap->xs[REGISTER_A0] = 2;
+                                        if (data_top != NULL)
+                                            *data_top = cap.data.memory_range.start;
+                                        if (data_bot != NULL)
+                                            *data_bot = cap.data.memory_range.end;
+                                        break;
+
+                                    case CAPABILITY_INTERNAL_TYPE_INTERRUPT:
+                                        trap->xs[REGISTER_A0] = 3;
+                                        if (data_top != NULL)
+                                            *data_top = cap.data.interrupt.interrupt_mask_1;
+                                        if (data_bot != NULL)
+                                            *data_bot = cap.data.interrupt.interrupt_mask_2;
+                                        break;
+
+                                    case CAPABILITY_INTERNAL_TYPE_KILL:
+                                        trap->xs[REGISTER_A0] = 4;
+                                        if (data_top != NULL)
+                                            *data_top = cap.data.kill.target;
+                                        if (data_bot != NULL)
+                                            *data_bot = cap.data.kill.kill << 5
+                                                      | cap.data.kill.murder << 4
+                                                      | cap.data.kill.interrupt << 3
+                                                      | cap.data.kill.suspend << 2
+                                                      | cap.data.kill.resume << 1
+                                                      | cap.data.kill.segfault << 0;
+                                        break;
+
+                                    case CAPABILITY_INTERNAL_TYPE_NIL:
+                                        break;
+                                }
+                                break;
+                            }
+                        }
+
+                        unlock_process(process);
                         break;
                     }
 

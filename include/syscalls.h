@@ -91,4 +91,21 @@ void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint
 //      Determines the size of the value. 0 = u8, 6 = u64
 int lock(void* ref, int type, uint64_t value);
 
+// capability_data(size_t* index, char* name, uint64_t* data_top, uint64_t* data_bot) -> int type
+// Gets the data of the capability associated with the given index. Returns the type of the capability.
+// This is useful for doing things like `switch (capability_data(&index, ...)) { ... }`.
+// The buffer must be at least 16 characters long.
+// Types:
+// - NONE      - 0
+//      No capability is associated with this index.
+// - CHANNEL   - 1
+//      The capability is a channel.
+// - MEMORY    - 2
+//      The capability is an ability to use a range of physical memory.
+// - INTERRUPT - 3
+//      The capability is an ability to process an interrupt.
+// - KILL      - 4
+//      The capability is an ability to kll another process.
+int capability_data(size_t* index, char* name, uint64_t* data_top, uint64_t* data_bot);
+
 #endif /* SYSCALL_H */

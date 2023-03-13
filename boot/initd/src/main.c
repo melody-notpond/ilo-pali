@@ -14,13 +14,6 @@ bool streq(const char* a, const char* b) {
 }
 */
 
-void thread(void* data) {
-    uart_puts("spawned thread");
-    sleep(1, 0);
-    *((char*) data) = 1;
-    exit(0);
-}
-
 void _start() {
     /*
     struct allowed_memory allowed;
@@ -40,12 +33,13 @@ void _start() {
     while(1);
     */
 
+    uart_puts("nya");
+    size_t index = 0;
+    char name[16];
+    while (capability_data(&index, name, NULL, NULL)) {
+        uart_puts(name);
+    }
     uart_puts("uwu");
-    char lock_value = 0;
-    spawn_thread(thread, &lock_value);
-    if (lock(&lock_value, LOCK_WAIT | LOCK_U8, 0))
-        uart_puts("oh no,,,");
-    else uart_puts("nya!");
 
     while(1);
 }

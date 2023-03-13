@@ -55,29 +55,10 @@ void exit(int64_t code) {
     while(1);
 }
 
-// get_allowed_memory(size_t i, struct allowed_memory* memory) -> bool
-// Gets an element of the allowed memory list. Returns true if the given index exists and false if out of bounds.
-//
-// The struct is defined below:
-// struct allowed_memory {
-//      char name[16];
-//      void* start;
-//      size_t size;
-// };
-bool get_allowed_memory(size_t i, struct allowed_memory* memory) {
-    return syscall(8, i, (intptr_t) memory, 0, 0, 0, 0);
-}
-
-// map_physical_memory(void* start, size_t size, int perms) -> void*
-// Maps a given physical range of memory to a virtual address for usage by the process. The process must have the ability to use this memory range or else it will return NULL.
-void* map_physical_memory(void* start, size_t size, int perms) {
-    return (void*) syscall(9, (intptr_t) start, size, perms, 0, 0, 0);
-}
-
 // set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) -> void
 // Sets the fault handler for the current process.
 void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint64_t fp)) {
-    syscall(10, (intptr_t) handler, 0, 0, 0, 0, 0);
+    syscall(8, (intptr_t) handler, 0, 0, 0, 0, 0);
 }
 
 // lock(void* ref, int type, uint64_t value) -> int status
@@ -90,5 +71,25 @@ void set_fault_handler(void (*handler)(int cause, uint64_t pc, uint64_t sp, uint
 // - SIZE     - 0,2,4,6
 //      Determines the size of the value. 0 = u8, 6 = u64
 int lock(void* ref, int type, uint64_t value) {
-    return syscall(11, (intptr_t) ref, type, value, 0, 0, 0);
+    return syscall(9, (intptr_t) ref, type, value, 0, 0, 0);
+}
+
+
+// capability_data(size_t* index, char* name, uint64_t* data_top, uint64_t* data_bot) -> int type
+// Gets the data of the capability associated with the given index. Returns the type of the capability.
+// This is useful for doing things like `switch (capability_data(&index, ...)) { ... }`.
+// The buffer must be at least 16 characters long.
+// Types:
+// - NONE      - 0
+//      No capability is associated with this index.
+// - CHANNEL   - 1
+//      The capability is a channel.
+// - MEMORY    - 2
+//      The capability is an ability to use a range of physical memory.
+// - INTERRUPT - 3
+//      The capability is an ability to process an interrupt.
+// - KILL      - 4
+//      The capability is an ability to kll another process.
+int capability_data(size_t* index, char* name, uint64_t* data_top, uint64_t* data_bot) {
+    return syscall(10, (intptr_t) index, (intptr_t) name, (intptr_t) data_top, (intptr_t) data_bot, 0, 0);
 }

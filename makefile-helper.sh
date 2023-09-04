@@ -1,6 +1,6 @@
 #!/usr/bin/zsh
 
-SUPERUSER=doas
+SUPERUSER=sudo
 
 echo -ne 'I\ncreate-gpt.fdisk\nw\n' | fdisk build/root.iso
 $SUPERUSER losetup -f build/root.iso

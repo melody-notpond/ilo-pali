@@ -3,7 +3,7 @@ CC     = clang
 GDB    = $(TARGET)-gdb
 EMU    = qemu-system-riscv64
 CORES  = 4
-SUPER  = doas
+SUPER  = sudo
 
 CODE = src/
 
@@ -64,6 +64,7 @@ idisc: boot
 
 rdisc: root
 	dd if=/dev/zero of=build/root.iso bs=4M count=256
+	mkdir -p mnt_root
 	./makefile-helper.sh
 
 gdb:

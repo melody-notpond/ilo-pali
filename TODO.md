@@ -6,17 +6,17 @@
   - [ ] check interrupts (use interrupt vector as a jump table)
   - [ ] handle page faults appropriately
   - [ ] check elf file parsing and loading
-  - [ ] fix processes
+  - [ ] fix processes (WIP)
 - [ ] add better kernelspace locking mechanisms (and use them!)
 - [ ] change how processes work
   - [ ] make scheduling algorithm smarter
   - [ ] have different queues for different process states/priorities
-  - [ ] process control block
-  - [ ] make the collection of processes an array instead of a hashmap (why is it a hashmap???)
+  - [X] process control block
+  - [X] make the collection of processes an array instead of a hashmap (why is it a hashmap???)
   - [ ] add user id (uid)
-  - [ ] add parent pid (ppid)
-  - [ ] add group id (gid)
-  - [ ] add thread id (tid)
+  - [X] add parent pid (ppid)
+  - [X] add group id (gid)
+  - [X] add thread id (tid)
   - [ ] when a process dies, its exit status gets queued to a parent wait queue
     - [ ] no zombie process created (can reuse pids)
     - [ ] if the parent dies, the exit status queue disappears

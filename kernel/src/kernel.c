@@ -17,7 +17,7 @@
 trap_t traps[MAX_TRAP_COUNT];
 size_t cpu_count = 0;
 
-void init_hart_helper(uint64_t hartid, mmu_level_1_t* mmu) {
+void init_hart_helper(uint64_t hartid, struct mmu_root mmu) {
     extern int stack_top;
     trap_t* trap = &traps[hartid];
     trap->hartid = hartid;
@@ -53,7 +53,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    dump_fdt(&devicetree, NULL);
+    // dump_fdt(&devicetree, NULL);
 
     void* last = NULL;
     while ((last = fdt_find(&devicetree, "cpu", last))) {
@@ -74,9 +74,12 @@ void kinit(uint64_t hartid, void* fdt) {
     void* initrd_end = (void*) be_to_le(32, initrd_end_prop.data);
 
     mark_as_used(initrd_start, (initrd_end - initrd_start + PAGE_SIZE - 1) / PAGE_SIZE);
-    mmu_level_1_t* top = create_mmu_table();
-    identity_map_kernel(top, &devicetree, initrd_start, initrd_end);
+    struct mmu_root top = create_mmu_table();
     set_mmu(top);
+
+    fdt_phys2safe(&devicetree);
+    initrd_start = phys2safe(initrd_start);
+    initrd_end = phys2safe(initrd_end);
 
     console_printf("[kinit] initrd start: %p\n[kinit] initrd end: %p\n", initrd_start, initrd_end);
 
@@ -102,7 +105,13 @@ void kinit(uint64_t hartid, void* fdt) {
     process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 0, NULL);
     free(data);
 
-    mmu_level_1_t* mmu = initd->mmu_data;
+    struct mmu_entry *entry = mmu_walk_to_entry(initd->mmu_data, (void *) 0x11a88);
+    if (entry)
+        console_printf("entry for 0x11a88 points to %p and has flags %x\n", mmu_entry_phys(*entry), mmu_entry_flags(*entry, MMU_ALL_BITS));
+    else console_printf("entry for 0x11a88 doesnt exist!\n");
+
+
+    struct mmu_root mmu = initd->mmu_data;
     pid_t initd_pid = initd->pid;
     unlock_process(initd);
 
@@ -140,10 +149,10 @@ void kinit(uint64_t hartid, void* fdt) {
     });
 
     console_puts("[kinit] initialising harts\n");
-    extern void init_hart(uint64_t hartid, mmu_level_1_t* mmu);
+    extern void init_hart(uint64_t hartid, struct mmu_root mmu);
     for (size_t i = 0; i < cpu_count; i++) {
         if (i != hartid) {
-            sbi_hart_start(i, init_hart, (uint64_t) mmu);
+            sbi_hart_start(i, init_hart, (uint64_t) mmu.data);
         }
     }
 
@@ -151,4 +160,3 @@ void kinit(uint64_t hartid, void* fdt) {
 
     while(1);
 }
-

@@ -3,6 +3,7 @@
 #include "console.h"
 #include "hashmap.h"
 #include "memory.h"
+#include "mmu.h"
 #include "opensbi.h"
 #include "process.h"
 #include "queue.h"
@@ -137,12 +138,11 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
             pid++;
     }
 
-    mmu_level_1_t* top;
+    struct mmu_root top;
     if (pid == 0) {
         top = get_mmu();
     } else {
         top = create_mmu_table();
-        identity_map_kernel(top, NULL, NULL, NULL);
     }
 
     void* max_page = NULL;
@@ -155,7 +155,7 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
         uint32_t flags_raw = program_header->flags;
         int flags = 0;
         if (flags_raw & 0x1)
-            flags |= MMU_BIT_EXECUTE;
+            flags |= MMU_BIT_EXEC;
         else if (flags_raw & 0x2)
             flags |= MMU_BIT_WRITE;
         if (flags_raw & 0x4)
@@ -164,19 +164,22 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
         size_t offset = program_header->virtual_addr % PAGE_SIZE;
         uint64_t page_count = (program_header->memory_size + offset + PAGE_SIZE - 1) / PAGE_SIZE;
         for (uint64_t i = 0; i < page_count; i++) {
-            void* virtual = (void*) program_header->virtual_addr + i * PAGE_SIZE;
-            void* page = mmu_alloc(top, virtual - offset, flags | MMU_BIT_USER);
+            void* virt_addr = (void*) program_header->virtual_addr + i * PAGE_SIZE;
+            void* page = mmu_alloc(top, virt_addr - offset, flags | MMU_BIT_USER);
             if (page == NULL) {
-                intptr_t p = mmu_walk(top, virtual);
-                if ((p & MMU_BIT_USER) == 0)
+                struct mmu_entry *entry = mmu_walk_to_entry(top, virt_addr);
+                if (!entry
+                    || !mmu_entry_valid(*entry)
+                    || !mmu_entry_frame(*entry)
+                    || !mmu_entry_user(*entry))
                     continue;
-                page = MMU_UNWRAP(4, p);
+                page = mmu_entry_phys(*entry);
             }
 
-            page = kernel_space_phys2virtual(page);
+            page = phys2safe(page);
 
-            if (virtual > max_page)
-                max_page = virtual;
+            if (virt_addr > max_page)
+                max_page = virt_addr;
 
             size_t size;
             if (program_header->file_size != 0) {
@@ -213,37 +216,45 @@ process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size
 
     int offset = 0;
     char** args_new = malloc(sizeof(char*) * argc);
-    char* physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
-    void* virtual = process.last_virtual_page;
+    char* physical = mmu_alloc(top, process.last_virtual_page,
+        MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+    physical = phys2safe(physical);
+    void* virt_addr = process.last_virtual_page;
     process.last_virtual_page += PAGE_SIZE;
     for (size_t arg_index = 0; arg_index < argc; arg_index++) {
-        args_new[arg_index] = virtual + offset;
+        args_new[arg_index] = virt_addr + offset;
         for (size_t i = 0; args[arg_index][i]; i++, offset++) {
             if (offset >= PAGE_SIZE) {
                 offset = 0;
-                physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
-                virtual = process.last_virtual_page;
+                physical = mmu_alloc(top, process.last_virtual_page,
+                    MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+                physical = phys2safe(physical);
+                virt_addr = process.last_virtual_page;
                 process.last_virtual_page += PAGE_SIZE;
             }
             physical[offset] = args[arg_index][i];
         }
         if (offset >= PAGE_SIZE) {
             offset = 0;
-            physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
-            virtual = process.last_virtual_page;
+            physical = mmu_alloc(top, process.last_virtual_page,
+                MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            physical = phys2safe(physical);
+            virt_addr = process.last_virtual_page;
             process.last_virtual_page += PAGE_SIZE;
         }
         physical[offset++] = '\0';
     }
 
     offset += (-offset) & (sizeof(void*) - 1);
-    void* first = virtual + offset;
+    void* first = virt_addr + offset;
 
     for (size_t arg_index = 0; arg_index < argc; arg_index++, offset += sizeof(void*)) {
         if (offset >= PAGE_SIZE) {
             offset = 0;
-            physical = kernel_space_phys2virtual(mmu_alloc(top, process.last_virtual_page, MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER));
-            virtual = process.last_virtual_page;
+            physical = mmu_alloc(top, process.last_virtual_page,
+                MMU_BIT_READ | MMU_BIT_WRITE | MMU_BIT_USER);
+            physical = phys2safe(physical);
+            virt_addr = process.last_virtual_page;
             process.last_virtual_page += PAGE_SIZE;
         }
         *((void**) (physical + offset)) = args_new[arg_index];
@@ -491,17 +502,15 @@ pid_t get_next_waiting_process(pid_t pid) {
                 return next_pid;
             }
         } else if (process->state == PROCESS_STATE_BLOCK_LOCK) {
-            mmu_level_1_t* current = get_mmu();
-            if (current != process->mmu_data)
-                set_mmu(process->mmu_data);
+            struct mmu_root current = get_mmu();
+            set_mmu(process->mmu_data);
             if (lock_stop(process->lock_ref, process->lock_type, process->lock_value)) {
                 process->xs[REGISTER_A0] = 0;
                 mutating_jobs_queue = false;
                 unlock_process(process);
                 return next_pid;
             }
-            if (current != process->mmu_data)
-                set_mmu(current);
+            set_mmu(current);
         }
 
         unlock_process(process);
@@ -550,7 +559,7 @@ void kill_process(pid_t pid) {
     }
 
     pid_t initd = 0;
-    if (process->mmu_data == get_mmu())
+    if (mmu_root_equal(process->mmu_data, get_mmu()))
         set_mmu(((process_t*) hashmap_get(processes, &initd))->mmu_data); // initd's mmu pointer never changes so this is okay
 
     if (process->thread_source == (pid_t) -1)

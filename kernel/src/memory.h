@@ -1,13 +1,19 @@
 #ifndef MEMORY_H
 #define MEMORY_H
 
-#define PAGE_SIZE 4096
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include "fdt.h"
+
+#define PAGE_SIZE 4096
+
+// TODO: use these
+#define __kernel __attribute((address_space(0)))
+#define __user __attribute__((noderef, address_space(1)))
+#define __virt __attribute__((address_space(2)))
+#define __phys __attribute__((noderef, address_space(3)))
 
 typedef uint8_t page_t[PAGE_SIZE];
 

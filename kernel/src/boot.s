@@ -7,12 +7,12 @@
 # a1 - pointer to flattened device tree
 
 _start:
-	# Initialise stack pointer
-	la sp, stack_top
+    # Initialise stack pointer
+    la sp, stack_top
     li t0, 0x8000
     mul t0, t0, a0
     sub sp, sp, t0
-	mv fp, sp
+    mv fp, sp
 
     # Init gp, whatever that is
     .option push
@@ -25,15 +25,15 @@ _start:
     csrw stvec, t0
 
     # Jump to init
-	j kinit
+    j kinit
 
 init_hart:
-	# Initialise stack pointer
-	la sp, stack_top
+    # Initialise stack pointer
+    la sp, stack_top
     li t0, 0x8000
     mul t0, t0, a0
     sub sp, sp, t0
-	mv fp, sp
+    mv fp, sp
 
     # Init gp, whatever that is
     .option push
@@ -47,7 +47,7 @@ init_hart:
 
     # Jump to init
     li a2, 0
-	j init_hart_helper
+    j init_hart_helper
 
 do_nothing:
     wfi

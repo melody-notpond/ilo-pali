@@ -74,4 +74,6 @@ uint64_t fdt_get_node_addr(void* node);
 // Gets a property from a device tree node.
 struct fdt_property fdt_get_property(fdt_t* fdt, void* node, char* key);
 
+void fdt_phys2safe(fdt_t *fdt);
+
 #endif /* FDT_H */

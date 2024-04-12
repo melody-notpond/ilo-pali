@@ -1,5 +1,5 @@
 TARGET = riscv64-unknown-elf
-CC     = $(TARGET)-gcc
+CC     = clang
 AR	   = $(TARGET)-ar
 CFLAGS = -march=rv64gc -mabi=lp64d -static -mcmodel=medany -nostdlib -g -Wall -Wextra -I../../include/
 ifeq ($(CC),clang)

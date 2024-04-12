@@ -3,6 +3,7 @@
 #include "console.h"
 #include "interrupt.h"
 #include "memory.h"
+#include "mmu.h"
 #include "opensbi.h"
 #include "process.h"
 #include "string.h"
@@ -72,7 +73,7 @@ void init_interrupts(uint64_t hartid, fdt_t* fdt) {
     struct fdt_property reg = fdt_get_property(fdt, node, "reg");
 
     // TODO: use #address-cells and #size-cells
-    plic_base = kernel_space_phys2virtual((void*) be_to_le(64, reg.data));
+    plic_base = phys2safe((void*) be_to_le(64, reg.data));
     plic_len = be_to_le(64, reg.data + 8);
 
     for (size_t i = 1; i <= MAX_INTERRUPT; i++) {
@@ -191,11 +192,11 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (permissions & 2)
                             perms |= MMU_BIT_WRITE;
                         else if (permissions & 1)
-                            perms |= MMU_BIT_EXECUTE;
+                            perms |= MMU_BIT_EXEC;
                         if (permissions & 4)
                             perms |= MMU_BIT_READ;
 
-                        mmu_level_1_t* mmu = get_mmu();
+                        struct mmu_root mmu = get_mmu();
                         process_t* process = get_process(trap->pid);
                         void* result = process->last_virtual_page;
                         for (size_t i = 0; i < page_count; i++) {
@@ -218,13 +219,18 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                         if (permissions & 2)
                             perms |= MMU_BIT_WRITE;
                         else if (permissions & 1)
-                            perms |= MMU_BIT_EXECUTE;
+                            perms |= MMU_BIT_EXEC;
                         if (permissions & 4)
                             perms |= MMU_BIT_READ;
 
-                        mmu_level_1_t* mmu = get_mmu();
+                        struct mmu_root mmu = get_mmu();
                         for (size_t i = 0; i < page_count; i++) {
-                            if ((mmu_walk(mmu, page + i * PAGE_SIZE) & (MMU_BIT_USER | MMU_BIT_VALID)) != (MMU_BIT_USER | MMU_BIT_VALID)) {
+                            struct mmu_entry *entry =
+                                mmu_walk_to_entry(mmu, page + i * PAGE_SIZE);
+                            if (!entry
+                                || !mmu_entry_valid(*entry)
+                                || !mmu_entry_user(*entry)
+                                ) {
                                 trap->xs[REGISTER_A0] = 1;
                                 return trap;
                             }
@@ -241,9 +247,14 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
                     case 3: {
                         void* page = (void*) trap->xs[REGISTER_A1];
                         size_t page_count = trap->xs[REGISTER_A2];
-                        mmu_level_1_t* mmu = get_mmu();
+                        struct mmu_root mmu = get_mmu();
                         for (size_t i = 0; i < page_count; i++) {
-                            if ((mmu_walk(mmu, page + i * PAGE_SIZE) & (MMU_BIT_USER | MMU_BIT_VALID)) != (MMU_BIT_USER | MMU_BIT_VALID)) {
+                            struct mmu_entry *entry =
+                                mmu_walk_to_entry(mmu, page + i * PAGE_SIZE);
+                            if (!entry
+                                || !mmu_entry_valid(*entry)
+                                || !mmu_entry_user(*entry)
+                                ) {
                                 trap->xs[REGISTER_A0] = 1;
                                 return trap;
                             }

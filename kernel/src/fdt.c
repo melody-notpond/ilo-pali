@@ -1,6 +1,7 @@
 #include <stddef.h>
 
 #include "fdt.h"
+#include "mmu.h"
 #include "console.h"
 #include "string.h"
 
@@ -392,3 +393,9 @@ struct fdt_property fdt_get_property(fdt_t* fdt, void* node, char* key) {
     return (struct fdt_property) { 0 };
 }
 
+void fdt_phys2safe(fdt_t *fdt) {
+    fdt->header = phys2safe(fdt->header);
+    fdt->memory_reservation_block = phys2safe(fdt->memory_reservation_block);
+    fdt->strings_block = phys2safe(fdt->strings_block);
+    fdt->structure_block = phys2safe(fdt->structure_block);
+}

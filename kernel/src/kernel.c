@@ -11,11 +11,7 @@
 #include "opensbi.h"
 #include "process.h"
 
-#define MAX_TRAP_COUNT 64
 #define STACK_SIZE     0x8000
-
-trap_t traps[MAX_TRAP_COUNT];
-size_t cpu_count = 0;
 
 void init_hart_helper(uint64_t hartid, struct mmu_root mmu) {
     extern int stack_top;
@@ -92,7 +88,7 @@ void kinit(uint64_t hartid, void* fdt) {
     }
 
     console_puts("[kinit] verified initrd image\n");
-    init_processes();
+    init_processes(64); // TODO: configure this
 
     size_t size;
     void* data = read_file_full(&fat, "initd", &size);
@@ -102,7 +98,7 @@ void kinit(uint64_t hartid, void* fdt) {
         while(1);
     }
 
-    process_t* initd = spawn_process_from_elf("initd", 5, &elf, 2, 0, NULL);
+    struct s_task *initd = spawn_task_from_elf("initd", 5, &elf, 2, 0, NULL);
     free(data);
 
     struct mmu_entry *entry = mmu_walk_to_entry(initd->mmu_data, (void *) 0x11a88);
@@ -112,41 +108,6 @@ void kinit(uint64_t hartid, void* fdt) {
 
 
     struct mmu_root mmu = initd->mmu_data;
-    pid_t initd_pid = initd->pid;
-    unlock_process(initd);
-
-    push_capability(initd_pid, (capability_internal_t) {
-        .name = "root_mem",
-        .type = CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
-        .data = {
-            .memory_range = {
-                .start = 0,
-                .end = 0xffffffffffffffff,
-            },
-        },
-    });
-
-    push_capability(initd_pid, (capability_internal_t) {
-        .name = "fdt_mem",
-        .type = CAPABILITY_INTERNAL_TYPE_MEMORY_RANGE,
-        .data = {
-            .memory_range = {
-                .start = (intptr_t) fdt,
-                .end = (intptr_t) fdt + (intptr_t) be_to_le(32, devicetree.header->totalsize),
-            },
-        },
-    });
-
-    push_capability(initd_pid, (capability_internal_t) {
-        .name = "interrupts",
-        .type = CAPABILITY_INTERNAL_TYPE_INTERRUPT,
-        .data = {
-            .interrupt = {
-                .interrupt_mask_1 = 0xffffffffffffffff,
-                .interrupt_mask_2 = 0xffffffffffffffff,
-            },
-        },
-    });
 
     console_puts("[kinit] initialising harts\n");
     extern void init_hart(uint64_t hartid, struct mmu_root mmu);

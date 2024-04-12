@@ -1,4 +1,4 @@
-#include "fat16.h"
+// #include "fat16.h"
 #include "syscalls.h"
 
 /*
@@ -34,11 +34,11 @@ void _start() {
     */
 
     uart_puts("nya");
-    size_t index = 0;
-    char name[16];
-    while (capability_data(&index, name, NULL, NULL)) {
-        uart_puts(name);
-    }
+    // size_t index = 0;
+    // char name[16];
+    // while (capability_data(&index, name, NULL, NULL)) {
+    //     uart_puts(name);
+    // }
     uart_puts("uwu");
 
     while(1);

@@ -41,7 +41,7 @@
     - [ ] any other relevant metadata
   - [ ] for opened files, kernel keeps track of:
     - [ ] what driver controls it
-    - [ ] what opened file id it haa
+    - [ ] what opened file id it has
     - [ ] a kernelspace buffer
     - [ ] any other relevant metadata
   - [ ] kernel knows nothing else about files

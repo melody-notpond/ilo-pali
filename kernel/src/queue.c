@@ -30,7 +30,7 @@ queue_t* create_queue(size_t item_size) {
 
 void grow_queue(queue_t* queue) {
     (*queue)->cap <<= 1;
-    *queue = realloc(*queue, (*queue)->cap * (*queue)->item_size);
+    *queue = realloc(*queue, sizeof(struct s_queue) + (*queue)->cap * (*queue)->item_size);
 }
 
 // queue_len(queue_t*) -> size_t

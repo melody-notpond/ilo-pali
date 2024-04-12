@@ -3,7 +3,8 @@ CC     = clang
 GDB    = riscv64-elf-gdb
 # GDB  = $(TARGET)-gdb
 EMU    = qemu-system-riscv64
-CORES  = 4
+CORES  = 1
+# CORES= 4
 SUPER  = sudo
 
 CODE = src/

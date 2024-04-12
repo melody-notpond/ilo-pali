@@ -3,6 +3,7 @@
 
 #include "fdt.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define REGISTER_ZERO   0
@@ -49,6 +50,10 @@ typedef struct {
     uint64_t hartid;
     pid_t pid;
 } trap_t;
+
+#define MAX_TRAP_COUNT 64
+static trap_t traps[MAX_TRAP_COUNT];
+static size_t cpu_count = 0;
 
 // timer_switch(trap_t*) -> void
 // Switches to a new process, or suspends the hart if no process is available.

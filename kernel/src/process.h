@@ -11,17 +11,16 @@
 #include "time.h"
 
 #define PROCESS_MESSAGE_QUEUE_SIZE  128
-#define PROCESS_NAME_SIZE           255
+#define TASK_NAME_SIZE              255
 
 typedef uint64_t capability_t;
 typedef uint64_t pid_t;
 
 typedef enum {
-    PROCESS_STATE_RUNNING,
-    PROCESS_STATE_BLOCK_SLEEP,
-    PROCESS_STATE_BLOCK_LOCK,
-    PROCESS_STATE_WAIT,
-} process_state_t;
+    TASK_STATE_RUNNING,
+    TASK_STATE_BLOCK,
+    TASK_STATE_READY,
+} task_state_t;
 
 struct allowed_memory {
      char name[16];
@@ -137,6 +136,21 @@ typedef struct s_channel {
 } channel_t;
 */
 
+struct s_task {
+    char name[TASK_NAME_SIZE];
+    pid_t pid;
+    pid_t ppid;
+    pid_t gid;
+    pid_t tid;
+
+    task_state_t state;
+    struct mmu_root mmu_data;
+
+    uint64_t pc;
+    uint64_t xs[32];
+    double fs[32];
+};
+
 typedef struct {
     char* name;
     pid_t pid;
@@ -147,7 +161,7 @@ typedef struct {
     bool faulted;
     void* fault_stack;
 
-    process_state_t state;
+    task_state_t state;
     struct mmu_root mmu_data;
     time_t wake_on_time;
     void* lock_ref;
@@ -171,41 +185,51 @@ typedef struct {
     double fs[32];
 } process_t;
 
-// init_processes() -> void
+// init_processes(size_t) -> void
 // Initialises process related stuff.
-void init_processes();
+void init_processes(size_t max);
 
-// get_process(pid_t) -> process_t*
-// Gets the process associated with the pid.
-process_t* get_process(pid_t pid);
+// // get_process(pid_t) -> process_t*
+// // Gets the process associated with the pid.
+// process_t* get_process(pid_t pid);
+struct s_task *get_task(pid_t pid);
 
-// get_process_unsafe(pid_t) -> process_t*
-// Gets the process associated with the pid without checking for mutex lock.
-process_t* get_process_unsafe(pid_t pid);
+// // get_process_unsafe(pid_t) -> process_t*
+// // Gets the process associated with the pid without checking for mutex lock.
+// process_t* get_process_unsafe(pid_t pid);
 
-// get_process(pid_t) -> bool
-// Checks if the given pid has an associated process.
-bool process_exists(pid_t pid);
+// // get_process(pid_t) -> bool
+// // Checks if the given pid has an associated process.
+// bool process_exists(pid_t pid);
 
-// unlock_process(process_t*) -> void
-// Unlocks the mutex associated with the process and frees a process hashmap reader.
-void unlock_process(process_t* process);
+// // unlock_process(process_t*) -> void
+// // Unlocks the mutex associated with the process and frees a process hashmap reader.
+// void unlock_process(process_t* process);
 
+// // spawn_process_from_elf(char*, size_t, elf_t*, size_t, size_t, char**) -> process_t*
+// // Spawns a process using the given elf file. Returns NULL on failure.
+// process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args);
 // spawn_process_from_elf(char*, size_t, elf_t*, size_t, size_t, char**) -> process_t*
 // Spawns a process using the given elf file. Returns NULL on failure.
-process_t* spawn_process_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args);
+struct s_task *spawn_task_from_elf(char* name, size_t name_size, elf_t* elf, size_t stack_size, size_t argc, char** args);
 
 // spawn_thread_from_func(pid_t, void*, size_t, void*) -> process_t*
 // Spawns a thread from the given process. Returns NULL on failure.
 process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_size, void* args);
 
+// // save_process(trap_t*) -> void
+// // Saves a process and pushes it onto the queue.
+// void save_process(trap_t* trap);
 // save_process(trap_t*) -> void
-// Saves a process and pushes it onto the queue.
-void save_process(trap_t* trap);
+// Saves a task.
+void save_task(trap_t* trap);
 
-// switch_to_process(pid_t) -> void
+// // switch_to_process(pid_t) -> void
+// // Jumps to the given process.
+// void switch_to_process(trap_t* trap, pid_t pid);
+// switch_to_process(trap_t*, pid_t) -> void
 // Jumps to the given process.
-void switch_to_process(trap_t* trap, pid_t pid);
+void switch_to_task(trap_t* trap, pid_t pid);
 
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns -1 if not found.

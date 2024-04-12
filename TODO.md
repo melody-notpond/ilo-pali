@@ -48,8 +48,8 @@
 - [ ] change how ipc works
   - [ ] entirely managed by kernel
   - [ ] fifo
-    - [ ] packet mode - [ ] send packets of a fixed size
-    - [ ] stream mode - [ ] send continuous data
+    - [ ] packet mode - send packets of a fixed size
+    - [ ] stream mode - send continuous data
     - [ ] buffer in kernelspace
     - [ ] no userspace driver despite being a file
   - [ ] shared memory
@@ -65,19 +65,19 @@
       - [ ] trap signals
       - [ ] if explicitly told to send to a single thread
     - [ ] list of signals
-      - [ ] interrupt - [ ] device interrupt
-      - [ ] kill - [ ] kills process unconditionally
-      - [ ] quit - [ ] request to kill a process
+      - [ ] interrupt - device interrupt
+      - [ ] kill - kills process unconditionally
+      - [ ] quit - request to kill a process
         - [ ] can be caught unix style (but terminates after)
-      - [ ] stop - [ ] suspends the process unconditionally
-      - [ ] suspend - [ ] suspends the process
+      - [ ] stop - suspends the process unconditionally
+      - [ ] suspend - suspends the process
         - [ ] can be caught unix style (but suspends after)
-      - [ ] continue - [ ] resumes a process after being suspended
-      - [ ] mem trap - [ ] a cpu trap was triggered from memory access
+      - [ ] continue - resumes a process after being suspended
+      - [ ] mem trap - a cpu trap was triggered from memory access
         - [ ] can only terminate or be handled unix style
-      - [ ] floating point trap - [ ] a cpu trap was triggered from a floating point error
+      - [ ] floating point trap - a cpu trap was triggered from a floating point error
         - [ ] can only terminate or be handled unix style
-      - [ ] arithmetic trap - [ ] a cpu trap was triggered from integer error
+      - [ ] arithmetic trap - a cpu trap was triggered from integer error
         - [ ] can only terminate or be handled unix style
     - [ ] signals that cant be ignored: kill and stop
 - [ ] change how drivers work

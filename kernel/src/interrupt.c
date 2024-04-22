@@ -7,6 +7,7 @@
 #include "process.h"
 #include "string.h"
 #include "time.h"
+#include "schedulers/scheduler.h"
 
 static void* plic_base;
 static size_t plic_len;
@@ -19,7 +20,7 @@ struct interrupt_list {
 } *interrupt_subscribers[MAX_INTERRUPT] = { NULL };
 atomic_bool interrupt_subscribers_lock = false;
 
-#define CONTEXT(hartid, machine) (2*hartid+machine)
+#define CONTEXT(hartid, machine) (2*(hartid)+(machine))
 
 extern void hart_suspend_resume(uint64_t hartid, trap_t* trap);
 
@@ -27,15 +28,15 @@ const int PROCESS_QUANTUM = 10000;
 
 // timer_switch(trap_t*) -> void
 // Switches to a new process, or suspends the hart if no process is available.
-void timer_switch(trap_t* trap) {
-    (void) trap;
-    pid_t next_pid = 0;
-    if (next_pid != (pid_t) -1)
-        switch_to_task(trap, next_pid);
-    else {
-        save_task(trap);
-        trap->pid = -1;
+trap_t *timer_switch(trap_t* trap) {
+    struct s_task *task;
+    if (trap->pid >= 0) {
+        task = get_task(trap->pid);
+        if (task->state == TASK_STATE_RUNNING)
+            task->state = TASK_STATE_READY;
+        schedule_task(task->pid, task->state, task->priority);
     }
+    pid_t next_pid = next_scheduled_task();
 
     time_t next = get_time();
     next.micros += PROCESS_QUANTUM;
@@ -44,11 +45,12 @@ void timer_switch(trap_t* trap) {
         next.micros -= 1000000;
     }
 
-    if (next_pid == (pid_t) -1) {
+    if (next_pid < 0) {
         set_next_time_interrupt(next);
         sbi_hart_suspend(0, (unsigned long) hart_suspend_resume, (unsigned long) trap);
 
-        // In the event that suspending doesn't work, just loop forever until an interrupt occurs
+        // In the event that suspending doesn't work, just
+        // loop forever until an interrupt occurs
         uint64_t sstatus;
         asm volatile("csrr %0, sstatus" : "=r" (sstatus));
         sstatus |= 1 << 8 | 1 << 5;
@@ -58,13 +60,25 @@ void timer_switch(trap_t* trap) {
         trap->pc = (uint64_t) do_nothing;
         set_next_time_interrupt(next);
         jump_out_of_trap(trap);
+        return trap;
     } else {
+        if (trap->pid == next_pid) {
+            task->state = TASK_STATE_RUNNING;
+            return trap;
+        }
+
+        struct s_task *next_task = get_task(next_pid);
+        next_task->trap.hartid = trap->hartid;
+        next_task->trap.interrupt_stack = trap->interrupt_stack;
+        next_task->state = TASK_STATE_RUNNING;
+        set_mmu(next_task->mmu_data);
         uint64_t sstatus;
         asm volatile("csrr %0, sstatus" : "=r" (sstatus));
         sstatus &= ~(1 << 8 | 1 << 5);
         uint64_t s = sstatus;
         asm volatile("csrw sstatus, %0" : "=r" (s));
         set_next_time_interrupt(next);
+        return &next_task->trap;
     }
 }
 
@@ -111,7 +125,7 @@ bool lock_stop(void* ref, int type, uint64_t value) {
     return (((type & 1) == 0) && !lock_equals(ref, type, value)) || (((type & 1) == 1) && lock_equals(ref, type, value));
 }
 
-trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
+trap_t *interrupt_handler(uint64_t cause, trap_t *trap) {
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
 
@@ -129,8 +143,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
 
             // Timer interrupt
             case 5:
-                timer_switch(trap);
-                break;
+                return timer_switch(trap);
 
             // External interrupt
             case 9: {
@@ -498,7 +511,7 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
             // Store page fault
             case 15: {
                 struct s_task *task = get_task(trap->pid);
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, task->name);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap process: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, task ? task->name : "<none>");
                 // TODO: send segfault message
                 // if (trap->pid != 0) {
                 //     kill_process(trap->pid);
@@ -515,11 +528,13 @@ trap_t* interrupt_handler(uint64_t cause, trap_t* trap) {
             // Invalid or handled by machine mode
             default: {
                 struct s_task *task = get_task(trap->pid);
-                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap task: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, task->name);
+                console_printf("cause: %lx\ntrap location: %lx\ntrap caller: %lx\ntrap task: %lx (%s)\n", cause, trap->pc, trap->xs[REGISTER_RA], trap->pid, task ? task->name : "<none>");
                 while(1);
             }
         }
     }
 
+    if (should_switch_now(trap->pid, get_task(trap->pid)->priority))
+        return timer_switch(trap);
     return trap;
 }

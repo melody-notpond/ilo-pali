@@ -14,9 +14,10 @@
 #define TASK_NAME_SIZE              255
 
 typedef uint64_t capability_t;
-typedef uint64_t pid_t;
+typedef int64_t pid_t;
 
 typedef enum {
+    TASK_STATE_DEAD = 0,
     TASK_STATE_RUNNING,
     TASK_STATE_BLOCK,
     TASK_STATE_READY,
@@ -146,9 +147,8 @@ struct s_task {
     task_state_t state;
     struct mmu_root mmu_data;
 
-    uint64_t pc;
-    uint64_t xs[32];
-    double fs[32];
+    int priority;
+    trap_t trap;
 };
 
 typedef struct {
@@ -185,9 +185,9 @@ typedef struct {
     double fs[32];
 } process_t;
 
-// init_processes(size_t) -> void
+// init_processes(pid_t) -> void
 // Initialises process related stuff.
-void init_processes(size_t max);
+void init_processes(pid_t max);
 
 // // get_process(pid_t) -> process_t*
 // // Gets the process associated with the pid.
@@ -223,13 +223,6 @@ process_t* spawn_thread_from_func(pid_t parent_pid, void* func, size_t stack_siz
 // save_process(trap_t*) -> void
 // Saves a task.
 void save_task(trap_t* trap);
-
-// // switch_to_process(pid_t) -> void
-// // Jumps to the given process.
-// void switch_to_process(trap_t* trap, pid_t pid);
-// switch_to_process(trap_t*, pid_t) -> void
-// Jumps to the given process.
-void switch_to_task(trap_t* trap, pid_t pid);
 
 // get_next_waiting_process(pid_t) -> pid_t
 // Searches for the next waiting process. Returns -1 if not found.

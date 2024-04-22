@@ -67,6 +67,9 @@ handle_interrupt:
     mv a1, t6
     jal interrupt_handler
 
+    # Save new sscratch
+    csrw sscratch, a0
+
 jump_out_of_trap:
     # Revert pc
     mv t6, a0

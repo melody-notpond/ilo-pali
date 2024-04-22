@@ -101,12 +101,6 @@ void kinit(uint64_t hartid, void* fdt) {
     struct s_task *initd = spawn_task_from_elf("initd", 5, &elf, 2, 0, NULL);
     free(data);
 
-    struct mmu_entry *entry = mmu_walk_to_entry(initd->mmu_data, (void *) 0x11a88);
-    if (entry)
-        console_printf("entry for 0x11a88 points to %p and has flags %x\n", mmu_entry_phys(*entry), mmu_entry_flags(*entry, MMU_ALL_BITS));
-    else console_printf("entry for 0x11a88 doesnt exist!\n");
-
-
     struct mmu_root mmu = initd->mmu_data;
 
     console_puts("[kinit] initialising harts\n");

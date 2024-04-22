@@ -39,7 +39,7 @@
 #define REGISTER_T5    30
 #define REGISTER_T6    31
 
-typedef uint64_t pid_t;
+typedef int64_t pid_t;
 
 typedef struct {
     uint64_t xs[32];
@@ -54,10 +54,6 @@ typedef struct {
 #define MAX_TRAP_COUNT 64
 static trap_t traps[MAX_TRAP_COUNT];
 static size_t cpu_count = 0;
-
-// timer_switch(trap_t*) -> void
-// Switches to a new process, or suspends the hart if no process is available.
-void timer_switch(trap_t* trap);
 
 // init_interrupts(uint64_t, fdt_t*) -> void
 // Inits interrupts.

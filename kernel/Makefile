@@ -9,5 +9,5 @@ CODE = src/
 
 .PHONY: all
 
-all: $(CODE)*.s $(CODE)*.c
+all: $(CODE)*.s $(CODE)*.c $(CODE)*/*.c
 	$(CC) $(CFLAGS) -Tkernel.ld $? -o ../build/kernel

@@ -1,6 +1,7 @@
 #include <stdbool.h>
 
 #include "console.h"
+#include "interrupt.h"
 #include "memory.h"
 #include "mmu.h"
 #include "process.h"
@@ -20,9 +21,9 @@
 // }
 
 static struct s_task *tasks = NULL;
-static size_t max_pid = 0;
+static pid_t max_pid = 0;
 
-void init_processes(size_t max) {
+void init_processes(pid_t max) {
     tasks = malloc(max * sizeof(struct s_task));
     max_pid = max;
 }
@@ -77,7 +78,7 @@ void init_processes(size_t max) {
 // }
 
 struct s_task *get_task(pid_t pid) {
-    if (pid >= max_pid)
+    if (pid >= max_pid || pid < 0)
         return NULL;
     return &tasks[pid];
 }
@@ -217,8 +218,10 @@ struct s_task *spawn_task_from_elf(char* name, size_t name_size, elf_t* elf, siz
     void *last_virtual_page = max_page - PAGE_SIZE;
 
     struct s_task *task = &tasks[pid];
-    task->xs[REGISTER_SP] = (uint64_t) last_virtual_page - 8;
-    task->xs[REGISTER_FP] = task->xs[REGISTER_SP];
+    task->pid = pid;
+    task->trap.pid = pid;
+    task->trap.xs[REGISTER_SP] = (uint64_t) last_virtual_page - 8;
+    task->trap.xs[REGISTER_FP] = task->trap.xs[REGISTER_SP];
     last_virtual_page += PAGE_SIZE;
 
     int offset = 0;
@@ -267,8 +270,8 @@ struct s_task *spawn_task_from_elf(char* name, size_t name_size, elf_t* elf, siz
         *((void**) (physical + offset)) = args_new[arg_index];
     }
 
-    task->xs[REGISTER_A0] = argc;
-    task->xs[REGISTER_A1] = (uint64_t) first;
+    task->trap.xs[REGISTER_A0] = argc;
+    task->trap.xs[REGISTER_A1] = (uint64_t) first;
 
     if (name_size > TASK_NAME_SIZE - 1)
         name_size = TASK_NAME_SIZE - 1;
@@ -277,7 +280,7 @@ struct s_task *spawn_task_from_elf(char* name, size_t name_size, elf_t* elf, siz
     task->name[name_size] = '\0';
     task->pid = pid;
     task->mmu_data = top;
-    task->pc = elf->header->entry;
+    task->trap.pc = elf->header->entry;
     task->state = TASK_STATE_READY;
     return task;
 }
@@ -541,24 +544,6 @@ struct s_task *spawn_task_from_elf(char* name, size_t name_size, elf_t* elf, siz
 //     return process_ptr;
 // }
 
-// save_process(trap_t*) -> void
-// Saves a task.
-void save_task(trap_t* trap) {
-    struct s_task* task = get_task(trap->pid);
-    if (task == NULL)
-        return;
-
-    task->pc = trap->pc;
-
-    for (int i = 0; i < 32; i++) {
-        task->xs[i] = trap->xs[i];
-    }
-
-    for (int i = 0; i < 32; i++) {
-        task->fs[i] = trap->fs[i];
-    }
-}
-
 // // save_process(trap_t*) -> void
 // // Saves a process and pushes it onto the queue.
 // void save_process(trap_t* trap) {
@@ -590,44 +575,6 @@ void save_task(trap_t* trap) {
 
 //     unlock_process(last);
 // }
-
-// switch_to_process(trap_t*, pid_t) -> void
-// Jumps to the given process.
-void switch_to_task(trap_t* trap, pid_t pid) {
-    struct s_task *last = trap->pid != pid ? get_task(trap->pid) : NULL;
-    struct s_task *next = get_task(pid);
-
-    if (last != NULL) {
-        if (last->state == TASK_STATE_RUNNING)
-            last->state = TASK_STATE_READY;
-        last->pc = trap->pc;
-
-        for (int i = 0; i < 32; i++) {
-            last->xs[i] = trap->xs[i];
-        }
-
-        for (int i = 0; i < 32; i++) {
-            last->fs[i] = trap->fs[i];
-        }
-    }
-
-    if (trap->pid != pid) {
-        trap->pid = next->pid;
-        trap->pc = next->pc;
-
-        for (int i = 0; i < 32; i++) {
-            trap->xs[i] = next->xs[i];
-        }
-
-        for (int i = 0; i < 32; i++) {
-            trap->fs[i] = next->fs[i];
-        }
-
-        next->state = TASK_STATE_RUNNING;
-    }
-
-    set_mmu(next->mmu_data);
-}
 
 // // switch_to_process(trap_t*, pid_t) -> void
 // // Jumps to the given process.

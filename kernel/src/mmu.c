@@ -303,7 +303,7 @@ void identity_map_kernel(struct mmu_root root) {
 // create_mmu_table() -> mmu_level_1_t*
 // Creates an empty mmu table.
 struct mmu_root create_mmu_table() {
-    intptr_t* top = alloc_pages(1);
+    intptr_t* top = phys2safe(alloc_pages(1));
 
     for (size_t i = MMU_TOP_HALF; i < MMU_ENTRY_COUNT; i++) {
         intptr_t page = ((i - MMU_TOP_HALF) << 28)
@@ -314,7 +314,7 @@ struct mmu_root create_mmu_table() {
         top[i] = page;
     }
 
-    struct mmu_root root = MMU_WRAP(root, (intptr_t) top);
+    struct mmu_root root = MMU_WRAP(root, (intptr_t) safe2phys(top));
     identity_map_kernel(root);
     return root;
 }

@@ -58,7 +58,6 @@ void kinit(uint64_t hartid, void* fdt) {
 
     console_printf("[kinit] %lx cpus present\n", cpu_count);
 
-    init_time(&devicetree);
     init_pages(&devicetree);
     mark_as_used(&devicetree, (be_to_le(32, devicetree.header->totalsize) + PAGE_SIZE - 1) / PAGE_SIZE);
 
@@ -100,6 +99,18 @@ void kinit(uint64_t hartid, void* fdt) {
 
     struct s_task *initd = spawn_task_from_elf("initd", 5, &elf, 2, 0, NULL);
     free(data);
+    console_puts("[kinit] succeeded initd loading\n");
+
+    data = read_file_full(&fat, "uwu", &size);
+    elf = verify_elf(data, size);
+    if (elf.header == NULL) {
+        console_puts("[kinit] failed to verify uwu elf file\n");
+        while(1);
+    }
+
+    spawn_task_from_elf("uwu", 3, &elf, 2, 0, NULL);
+    free(data);
+    console_puts("[kinit] succeeded uwu loading\n");
 
     struct mmu_root mmu = initd->mmu_data;
 

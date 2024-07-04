@@ -24,29 +24,22 @@ atomic_bool interrupt_subscribers_lock = false;
 
 extern void hart_suspend_resume(uint64_t hartid, trap_t* trap);
 
-const int PROCESS_QUANTUM = 10000;
+const int PROCESS_QUANTUM = 100000;
 
 // timer_switch(trap_t*) -> void
 // Switches to a new process, or suspends the hart if no process is available.
 trap_t *timer_switch(trap_t* trap) {
-    struct s_task *task;
+    struct s_task *task = NULL;
     if (trap->pid >= 0) {
         task = get_task(trap->pid);
         if (task->state == TASK_STATE_RUNNING)
             task->state = TASK_STATE_READY;
         schedule_task(task->pid, task->state, task->priority);
     }
+
     pid_t next_pid = next_scheduled_task();
 
-    time_t next = get_time();
-    next.micros += PROCESS_QUANTUM;
-    while (next.micros >= 1000000) {
-        next.seconds += 1;
-        next.micros -= 1000000;
-    }
-
     if (next_pid < 0) {
-        set_next_time_interrupt(next);
         sbi_hart_suspend(0, (unsigned long) hart_suspend_resume, (unsigned long) trap);
 
         // In the event that suspending doesn't work, just
@@ -58,12 +51,24 @@ trap_t *timer_switch(trap_t* trap) {
         asm volatile("csrw sstatus, %0" : "=r" (s));
         extern void do_nothing();
         trap->pc = (uint64_t) do_nothing;
-        set_next_time_interrupt(next);
+
+        time_t next = get_time();
+        next += PROCESS_QUANTUM;
+        sbi_set_timer(next);
         jump_out_of_trap(trap);
         return trap;
     } else {
+        uint64_t sstatus;
+        asm volatile("csrr %0, sstatus" : "=r" (sstatus));
+        sstatus &= ~(1 << 8 | 1 << 5);
+        uint64_t s = sstatus;
+        asm volatile("csrw sstatus, %0" : "=r" (s));
+
         if (trap->pid == next_pid) {
             task->state = TASK_STATE_RUNNING;
+            time_t next = get_time();
+            next += PROCESS_QUANTUM;
+            sbi_set_timer(next);
             return trap;
         }
 
@@ -72,12 +77,10 @@ trap_t *timer_switch(trap_t* trap) {
         next_task->trap.interrupt_stack = trap->interrupt_stack;
         next_task->state = TASK_STATE_RUNNING;
         set_mmu(next_task->mmu_data);
-        uint64_t sstatus;
-        asm volatile("csrr %0, sstatus" : "=r" (sstatus));
-        sstatus &= ~(1 << 8 | 1 << 5);
-        uint64_t s = sstatus;
-        asm volatile("csrw sstatus, %0" : "=r" (s));
-        set_next_time_interrupt(next);
+
+        time_t next = get_time();
+        next += PROCESS_QUANTUM;
+        sbi_set_timer(next);
         return &next_task->trap;
     }
 }
@@ -128,6 +131,8 @@ bool lock_stop(void* ref, int type, uint64_t value) {
 trap_t *interrupt_handler(uint64_t cause, trap_t *trap) {
     if (cause & 0x8000000000000000) {
         cause &= 0x7fffffffffffffff;
+        int t = 1 << cause;
+        asm volatile("csrc sip, %0" : "=r" (t));
 
         switch (cause) {
             // Software interrupt (interprocessor interrupt, indicating that a process has died and each hart should check if its process is still alive)

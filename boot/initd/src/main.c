@@ -33,14 +33,17 @@ void _start() {
     while(1);
     */
 
-    uart_puts("nya");
+    // uart_puts("nya");
     // size_t index = 0;
     // char name[16];
     // while (capability_data(&index, name, NULL, NULL)) {
     //     uart_puts(name);
     // }
-    uart_puts("uwu");
+    // uart_puts("uwu");
 
-    while(1);
+    // while(1);
+
+    while (1)
+        uart_puts("from initd");
 }
 

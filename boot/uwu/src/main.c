@@ -1,6 +1,7 @@
 #include "syscalls.h"
 
 void _start() {
-    uart_puts("uwu");
+    while (1)
+        uart_puts("from uwu");
 }
 

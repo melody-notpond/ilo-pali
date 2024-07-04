@@ -27,7 +27,7 @@ int sbi_console_getchar();
 
 // sbi_set_timer(unsigned long long) -> struct sbiret
 // Sets the timer value.
-struct sbiret sbi_set_timer(unsigned long long stime_value);
+struct sbiret sbi_set_timer(uint64_t stime_value);
 
 // sbi_hart_start(unsigned long, void*, unsigned long) -> struct sbiret
 // Starts a hart at the given start address with the given opaque data.

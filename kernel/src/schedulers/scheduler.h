@@ -5,6 +5,9 @@
 
 #define SCHED_ROUND_ROBIN
 
+// Initialise the scheduler.
+void init_scheduler(pid_t max_pid, void *data);
+
 // Schedules a new process. Higher priority value is higher priority.
 void schedule_task(pid_t pid, task_state_t state, int priority);
 
